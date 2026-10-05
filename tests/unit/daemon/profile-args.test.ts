@@ -33,7 +33,7 @@ describe('profile-scoped daemon paths and arguments', () => {
   it('classic service pins `run --profile <profile>` and LARK_CHANNEL_HOME', () => {
     const inputs = {
       nodePath: '/usr/local/bin/node',
-      bridgeEntryPath: '/repo/bin/lark-channel-bridge.mjs',
+      bridgeEntryPath: '/repo/bin/lark-mcode-bridge.mjs',
       envPath: '/usr/local/bin:/usr/bin',
       profile: 'codex-dev',
       runArgs: ['run', '--profile', 'codex-dev'],
@@ -55,7 +55,7 @@ describe('profile-scoped daemon paths and arguments', () => {
   it('supervisor service runs `run --web-ui` with no --profile', () => {
     const inputs = {
       nodePath: '/usr/local/bin/node',
-      bridgeEntryPath: '/repo/bin/lark-channel-bridge.mjs',
+      bridgeEntryPath: '/repo/bin/lark-mcode-bridge.mjs',
       envPath: '/usr/local/bin:/usr/bin',
       profile: 'supervisor',
       runArgs: ['run', '--web-ui'],

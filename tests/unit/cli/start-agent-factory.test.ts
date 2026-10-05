@@ -31,7 +31,7 @@ describe('start runtime agent factory', () => {
       permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
     });
     const agent = createRuntimeAgent(profile, {
-      profileDir: '/tmp/lark-channel-bridge/profiles/mcode-e2e',
+      profileDir: '/tmp/lark-mcode-bridge/profiles/mcode-e2e',
     });
 
     expect(agent.id).toBe('mcode');
@@ -49,7 +49,7 @@ describe('start runtime agent factory', () => {
         accounts: appAccount(),
         mcode: { binaryPath: '/usr/local/bin/mcode' },
       }),
-      { profileDir: '/tmp/lark-channel-bridge/profiles/mcode-e2e' },
+      { profileDir: '/tmp/lark-mcode-bridge/profiles/mcode-e2e' },
     );
 
     expect(agent.id).toBe('mcode');

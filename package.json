@@ -1,5 +1,5 @@
 {
-  "name": "lark-channel-bridge",
+  "name": "lark-mcode-bridge",
   "version": "0.7.1",
   "description": "Bridge Feishu/Lark messenger with local CLI coding agents",
   "type": "module",
@@ -17,7 +17,7 @@
   },
   "homepage": "https://github.com/zarazhangrui/feishu-claude-code-bridge#readme",
   "bin": {
-    "lark-channel-bridge": "./bin/lark-channel-bridge.mjs"
+    "lark-mcode-bridge": "./bin/lark-mcode-bridge.mjs"
   },
   "exports": {
     ".": {
