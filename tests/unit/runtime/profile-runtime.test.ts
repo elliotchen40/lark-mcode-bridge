@@ -1,6 +1,6 @@
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { delimiter, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import os, { tmpdir } from 'node:os';
 import { mkdtemp } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -909,3 +909,100 @@ function restoreDescriptor(
     delete (target as unknown as Record<string, unknown>)[key];
   }
 }
+
+describe('launch directory as the default workspace', () => {
+  const app = { app: { id: 'cli_x', secret: 'sec', tenant: 'feishu' as const } };
+
+  async function seedProfile(configDir: string, defaultWorkspace: string): Promise<string> {
+    const configFile = join(configDir, 'config.json');
+    const profile = createDefaultProfileConfig({
+      agentKind: 'mcode',
+      accounts: app,
+      mcode: { binaryPath: 'mcode' },
+    });
+    profile.workspaces.default = defaultWorkspace;
+    await writeFile(
+      configFile,
+      JSON.stringify(
+        { schemaVersion: 2, activeProfile: 'mcode', profiles: { mcode: profile } },
+        null,
+        2,
+      ),
+    );
+    return configFile;
+  }
+
+  it('adopts the directory the bridge was launched from while the default is still the managed placeholder', async () => {
+    const root = await tmpRoot();
+    const configDir = join(root, 'cfg');
+    await mkdir(configDir, { recursive: true });
+    const appPaths = resolveAppPaths({ rootDir: configDir, profile: 'mcode' });
+    const launchDir = await mkdtemp(join(tmpdir(), 'launch-dir-'));
+    const configFile = await seedProfile(configDir, appPaths.defaultWorkspaceDir);
+
+    const cwd = process.cwd();
+    process.chdir(launchDir);
+    try {
+      const runtime = await resolveProfileRuntime({
+        config: configFile,
+        profile: 'mcode',
+        allowBootstrap: false,
+      });
+
+      expect(runtime.profileConfig.workspaces.default).toBe(await realpath(launchDir));
+      // Persisted, so a later start from elsewhere keeps this project.
+      const saved = JSON.parse(await readFile(configFile, 'utf8')) as {
+        profiles: Record<string, { workspaces: { default?: string } }>;
+      };
+      expect(saved.profiles.mcode?.workspaces.default).toBe(await realpath(launchDir));
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  it('never overrides a workspace the user already chose', async () => {
+    const root = await tmpRoot();
+    const configDir = join(root, 'cfg');
+    await mkdir(configDir, { recursive: true });
+    const chosen = await mkdtemp(join(tmpdir(), 'chosen-project-'));
+    const configFile = await seedProfile(configDir, chosen);
+    const launchDir = await mkdtemp(join(tmpdir(), 'other-project-'));
+
+    const cwd = process.cwd();
+    process.chdir(launchDir);
+    try {
+      const runtime = await resolveProfileRuntime({
+        config: configFile,
+        profile: 'mcode',
+        allowBootstrap: false,
+      });
+
+      expect(runtime.profileConfig.workspaces.default).toBe(chosen);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  it('refuses to default the workspace to the home directory', async () => {
+    const root = await tmpRoot();
+    const configDir = join(root, 'cfg');
+    await mkdir(configDir, { recursive: true });
+    const appPaths = resolveAppPaths({ rootDir: configDir, profile: 'mcode' });
+    const configFile = await seedProfile(configDir, appPaths.defaultWorkspaceDir);
+
+    const cwd = process.cwd();
+    process.chdir(os.homedir());
+    try {
+      const runtime = await resolveProfileRuntime({
+        config: configFile,
+        profile: 'mcode',
+        allowBootstrap: false,
+      });
+
+      // Falls back to the managed placeholder rather than $HOME.
+      expect(runtime.profileConfig.workspaces.default).toBe(appPaths.defaultWorkspaceDir);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+});

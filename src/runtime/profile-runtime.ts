@@ -1,4 +1,5 @@
 import { mkdir, readFile, realpath } from 'node:fs/promises';
+import os from 'node:os';
 import { dirname } from 'node:path';
 import * as p from '@clack/prompts';
 import { runRegistrationWizard } from '../bot/wizard';
@@ -157,15 +158,20 @@ export async function resolveProfileRuntime(
     if (runtimeUpgrade.changed) {
       rootConfig = runtimeUpgrade.rootConfig;
     }
+    const launchUpgrade = await adoptLaunchWorkspace(rootConfig, profile, appPaths);
+    if (launchUpgrade.changed) {
+      rootConfig = launchUpgrade.rootConfig;
+    }
     const defaultWorkspaceUpgrade = await ensureProfileDefaultWorkspace(rootConfig, profile, appPaths);
     if (defaultWorkspaceUpgrade.changed) {
       rootConfig = defaultWorkspaceUpgrade.rootConfig;
     }
-    if (runtimeUpgrade.changed || defaultWorkspaceUpgrade.changed) {
+    if (runtimeUpgrade.changed || launchUpgrade.changed || defaultWorkspaceUpgrade.changed) {
       await saveRootConfig(rootConfig, configPath);
       profileConfig = rootConfig.profiles[profile]!;
-      log.info('profile', 'legacy-runtime-defaults-upgraded', {
+      log.info('profile', 'profile-defaults-upgraded', {
         profile,
+        launchWorkspace: launchUpgrade.changed,
         workspace: defaultWorkspaceUpgrade.changed,
       });
     }
@@ -292,6 +298,75 @@ function upgradeLegacyRuntimeDefaults(
     changed: true,
     rootConfig: markPermissionDefaultsMigration(nextRoot, profile),
   };
+}
+
+/**
+ * Adopt the directory the bridge was launched from as the profile's default
+ * workspace.
+ *
+ * Without this, a fresh profile's default is `<root>-workspaces/<profile>/default`
+ * — an empty directory the bridge makes for itself — so launching from inside a
+ * project leaves the agent working in that empty directory instead. The launch
+ * directory is what the user means by "my project", so take it.
+ *
+ * Two deliberate limits:
+ *
+ *  - Only while the default is still the managed placeholder. Once a workspace
+ *    has been chosen (via `--workspace`, `/cd` + `/ws save`, or a hand-edited
+ *    config) it is never overridden, so restarting from elsewhere cannot
+ *    silently move the agent to a different repository.
+ *  - Never from the home directory, `/`, or a system path. The bridge runs the
+ *    agent with tool execution enabled, so defaulting the workspace to `$HOME`
+ *    would hand it the entire home directory by default.
+ *
+ * A per-chat `/cd` still overrides this, as before.
+ */
+async function adoptLaunchWorkspace(
+  rootConfig: RootConfig,
+  profile: string,
+  appPaths: AppPaths,
+): Promise<{ rootConfig: RootConfig; changed: boolean }> {
+  const profileConfig = rootConfig.profiles[profile];
+  if (!profileConfig) return { rootConfig, changed: false };
+
+  const current = profileConfig.workspaces.default;
+  if (current !== appPaths.defaultWorkspaceDir) {
+    return { rootConfig, changed: false };
+  }
+
+  const launchDir = process.cwd();
+  if (!isAdoptableLaunchDir(launchDir)) {
+    log.info('profile', 'launch-workspace-skipped', { profile, launchDir });
+    return { rootConfig, changed: false };
+  }
+
+  const real = await realpath(launchDir).catch(() => undefined);
+  if (!real) return { rootConfig, changed: false };
+
+  log.info('profile', 'launch-workspace-adopted', { profile, from: current, to: real });
+  return {
+    changed: true,
+    rootConfig: {
+      ...rootConfig,
+      profiles: {
+        ...rootConfig.profiles,
+        [profile]: {
+          ...profileConfig,
+          workspaces: { ...profileConfig.workspaces, default: real },
+        },
+      },
+    },
+  };
+}
+
+function isAdoptableLaunchDir(dir: string): boolean {
+  const home = os.homedir();
+  // Home itself, `/`, and the usual system roots are never a sensible default
+  // workspace — the agent would start out with far too much scope.
+  const forbidden = new Set(['/', home, '/root', '/home', '/usr', '/etc', '/var', '/opt', '/tmp']);
+  if (forbidden.has(dir)) return false;
+  // A launch dir *inside* home is fine (a project checkout); home itself is not.
+  return dir !== home.replace(/\/+$/, '');
 }
 
 async function ensureProfileDefaultWorkspace(
