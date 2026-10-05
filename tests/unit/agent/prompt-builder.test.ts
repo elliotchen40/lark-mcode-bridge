@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildAgentPrompt } from '../../../src/agent/prompt';
+import {
+  buildAgentPrompt,
+  readPromptSection,
+  summarizeUserMessage,
+} from '../../../src/agent/prompt';
 
 describe('agent prompt builder', () => {
   it('serializes untrusted message, quote, card, and comment text without closing bridge tags', () => {
@@ -144,3 +148,39 @@ function readSection(prompt: string, tag: string): unknown {
 function count(input: string, needle: string): number {
   return input.split(needle).length - 1;
 }
+
+describe('prompt section reading', () => {
+  const base = {
+    context: { chatId: 'oc_group', chatType: 'group', senderId: 'ou_user', source: 'im' },
+  } as const;
+
+  it('round-trips a section back out of a built prompt', () => {
+    const prompt = buildAgentPrompt({ ...base, userInput: '帮我改一下标题' });
+
+    expect(readPromptSection(prompt, 'user_input')).toEqual({ text: '帮我改一下标题' });
+  });
+
+  it('returns undefined for a missing or unparsable section instead of throwing', () => {
+    const prompt = buildAgentPrompt({ ...base, userInput: 'hi' });
+
+    expect(readPromptSection(prompt, 'nope')).toBeUndefined();
+    expect(readPromptSection('not a prompt at all', 'user_input')).toBeUndefined();
+    expect(readPromptSection('<user_input>\nnot json\n</user_input>', 'user_input')).toBeUndefined();
+  });
+
+  it('summarizes the user message, flattening whitespace and truncating', () => {
+    expect(
+      summarizeUserMessage(buildAgentPrompt({ ...base, userInput: '帮我  改一下\n标题' })),
+    ).toBe('帮我 改一下 标题');
+
+    const long = summarizeUserMessage(
+      buildAgentPrompt({ ...base, userInput: 'x'.repeat(200) }),
+    );
+    expect(long).toHaveLength(80);
+    expect(long?.endsWith('…')).toBe(true);
+  });
+
+  it('has no summary when the prompt carries no user message', () => {
+    expect(summarizeUserMessage(buildAgentPrompt({ ...base, userInput: '   ' }))).toBeUndefined();
+  });
+});

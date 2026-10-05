@@ -96,9 +96,11 @@ describe('mcode resume commands', () => {
     expect(rendered).toContain('mvs-targ');
 
     const nonces = resumeArgsFromCard(card);
-    expect(nonces).toHaveLength(2);
-    expect(nonces[1]).not.toBe('mvs-target');
-    await h.dispatchResumeArg(nonces[1]!);
+    // Both sessions are listed, but only the non-current one is offered as a
+    // button — clicking "already current" would be a no-op.
+    expect(nonces).toHaveLength(1);
+    expect(nonces[0]).not.toBe('mvs-target');
+    await h.dispatchResumeArg(nonces[0]!);
 
     expect(h.sessions.resumeFor('chat-1', h.identity.cwdRealpath)).toBe('mvs-target');
     expect(h.catalog.activeFor(h.identity)).toMatchObject({
@@ -140,6 +142,60 @@ describe('mcode resume commands', () => {
 
     expect(h.sessions.getRaw('chat-1')).toBeUndefined();
     expect(lastMarkdown(h.channel)).toContain('不可恢复');
+  });
+
+  it('previews what the user asked instead of mcode\'s system-prompt-only title', async () => {
+    // mcode titles a session from its first user message, which for this bridge
+    // is the system prompt plus the request, truncated to ~50 chars — so its
+    // title is all system prompt. The bridge's own summary must win.
+    const h = await createHarness();
+    // Current session is a different one, so this one is listed as selectable
+    // and its preview is actually rendered.
+    h.sessions.set('chat-1', 'mvs-current', h.identity.cwdRealpath);
+    h.catalog.upsertActive({ ...h.identity, sessionId: 'mvs-current' });
+    // A different scope, so this does not overwrite the current entry above.
+    h.catalog.upsertActive({
+      ...h.identity,
+      scopeId: 'chat-2',
+      sessionId: 'mvs-titled',
+      lastSummary: '帮我把 README 标题改一下',
+    });
+    h.history.push(
+      mcodeSession(
+        'mvs-titled',
+        '# lark-mcode-bridge 运行约定 你正在 lark-mcode-bridge 里跑：',
+        1_700_000_100_000,
+      ),
+    );
+
+    await expect(h.run('/resume')).resolves.toBe(true);
+
+    const rendered = JSON.stringify(lastContent(h.channel));
+    expect(rendered).toContain('帮我把 README 标题改一下');
+    expect(rendered).not.toContain('运行约定');
+  });
+
+  it('falls back to the mcode title when the bridge recorded no summary', async () => {
+    const h = await createHarness();
+    h.history.push(mcodeSession('mvs-foreign', 'outside the bridge', 1_700_000_100_000));
+
+    await expect(h.run('/resume')).resolves.toBe(true);
+
+    expect(JSON.stringify(lastContent(h.channel))).toContain('outside the bridge');
+  });
+
+  it('says so plainly when every listed session is already the current one', async () => {
+    // A card whose only session is current has no usable button, which reads as
+    // "nothing to choose" unless the card explains it.
+    const h = await createHarness();
+    h.sessions.set('chat-1', 'mvs-only', h.identity.cwdRealpath);
+    h.history.push(mcodeSession('mvs-only', 'only session', 1_700_000_100_000));
+
+    await expect(h.run('/resume')).resolves.toBe(true);
+
+    const rendered = JSON.stringify(lastContent(h.channel));
+    expect(rendered).toContain('已是当前会话');
+    expect(resumeArgsFromCard(lastContent(h.channel))).toHaveLength(0);
   });
 
   it('renders an empty history card when the session store has nothing for the cwd', async () => {

@@ -556,12 +556,21 @@ async function handleResume(args: string, ctx: CommandContext): Promise<void> {
   const sessions = listMcodeResumeHistory(ctx, cwd, limit);
   const currentSession = ctx.sessions.getRaw(ctx.scope);
   const identity = ctx.sessionCatalogIdentity;
+  // The bridge records what the user actually asked when it creates a session.
+  // Prefer that over mcode's own title: mcode derives the title from its first
+  // user message, which here is the bridge system prompt plus the request, and
+  // it truncates the title to ~50 characters — far shorter than the system
+  // prompt — so the title never contains what the user asked.
+  const summaries = new Map<string, string>();
+  for (const entry of ctx.sessionCatalog?.entries() ?? []) {
+    if (entry.sessionId && entry.lastSummary) summaries.set(entry.sessionId, entry.lastSummary);
+  }
   const entries = sessions.map((s) => ({
     sessionId: identity
       ? issueResumeCandidate(identity, { sessionId: s.sessionId })
       : s.sessionId,
     displayId: s.sessionId,
-    preview: s.preview,
+    preview: summaries.get(s.sessionId) ?? s.preview,
     relTime: formatRelTime(s.mtime),
     detail: 'MiniMax Code',
     current: s.sessionId === currentSession?.sessionId,

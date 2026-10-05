@@ -148,7 +148,21 @@ export function resumeCard(cwd: string, entries: ResumeEntry[]): object {
 
   if (entries.length === 0) {
     elements.push(HR);
-    elements.push(divMd('此 cwd 下没有历史会话。'));
+    elements.push(divMd('此 cwd 下没有历史会话。发一条消息就会建立第一个。'));
+    return shell('🔁 恢复历史会话', elements);
+  }
+
+  // When every listed session is already the active one, every button is
+  // disabled — which reads as "nothing to choose" even though sessions are
+  // listed. Say so explicitly instead of leaving the user to infer it.
+  const selectable = entries.filter((e) => !e.current).length;
+  if (selectable === 0) {
+    elements.push(HR);
+    elements.push(
+      divMd(
+        `此 cwd 下只有 **${entries.length}** 个会话，且已是当前会话，无需恢复。\n继续发消息即可接着聊；要换会话，先用 \`/new\` 开新会话或 \`/cd\` 切换工作目录。`,
+      ),
+    );
     return shell('🔁 恢复历史会话', elements);
   }
 
@@ -162,12 +176,13 @@ export function resumeCard(cwd: string, entries: ResumeEntry[]): object {
         `**${i + 1}.** ${escapeMd(e.preview)}${marker}\n\`${displayId.slice(0, 8)}…\` · ${e.relTime} · ${escapeMd(detail)}`,
       ),
     );
+    if (e.current) return;
     elements.push(
       actions([
         {
-          text: e.current ? '已是当前会话' : '▸ 恢复此会话',
+          text: '▸ 恢复此会话',
           value: { cmd: 'resume.use', arg: e.sessionId },
-          style: e.current ? 'default' : 'primary',
+          style: 'primary',
         },
       ]),
     );

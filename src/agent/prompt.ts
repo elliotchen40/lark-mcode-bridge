@@ -114,6 +114,46 @@ export function promptSection(tag: string, value: unknown): string {
   return `<${tag}>\n${safeJsonStringify(value)}\n</${tag}>`;
 }
 
+/**
+ * Read a section back out of a built prompt — the inverse of
+ * {@link promptSection}.
+ *
+ * Needed because the bridge wraps its system prompt around the user's turn
+ * before handing it to the agent, so anything that wants "what did the user
+ * actually ask" (a `/resume` preview, a session title) must unwrap it.
+ * Returns undefined when the section is absent or its payload is not the JSON
+ * we wrote, so a malformed prompt degrades to "unknown" rather than throwing.
+ */
+export function readPromptSection(prompt: string, tag: string): unknown {
+  const start = prompt.indexOf(`<${tag}>`);
+  if (start === -1) return undefined;
+  const bodyStart = start + tag.length + 2;
+  const end = prompt.indexOf(`\n</${tag}>`, bodyStart);
+  if (end === -1) return undefined;
+  try {
+    return JSON.parse(prompt.slice(bodyStart, end)) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Best-effort one-line summary of the user's own message in a built prompt.
+ *
+ * Used as the `/resume` preview: mcode titles a session from its first user
+ * message, but that message here is the bridge system prompt plus the request,
+ * and mcode truncates the title to ~50 characters — far shorter than the system
+ * prompt — so the title never contains what the user asked. The bridge's own
+ * record is the only reliable source.
+ */
+export function summarizeUserMessage(prompt: string, maxChars = 80): string | undefined {
+  const section = readPromptSection(prompt, 'user_input') as { text?: unknown } | undefined;
+  const text = typeof section?.text === 'string' ? section.text.trim() : '';
+  if (!text) return undefined;
+  const flat = text.replace(/\s+/g, ' ');
+  return flat.length <= maxChars ? flat : `${flat.slice(0, maxChars - 1)}…`;
+}
+
 export function safeJsonStringify(value: unknown): string {
   return (JSON.stringify(value) ?? 'null')
     .replace(/</g, '\\u003c')

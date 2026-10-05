@@ -1,4 +1,5 @@
 import type { AgentCapability } from '../agent/capability';
+import { summarizeUserMessage } from '../agent/prompt';
 import { resolveModelArg } from '../agent/models';
 import type { AgentEvent } from '../agent/types';
 import type { ProfileConfig } from '../config/profile-schema';
@@ -181,11 +182,24 @@ export function recordRunSessionEvent(input: RecordRunSessionEventInput): void {
   // what lets the next message in the same scope continue the conversation.
   const cwdRealpath = input.event.cwd ?? input.policy.cwdRealpath;
   input.sessions.set(input.scopeId, input.event.sessionId, cwdRealpath);
-  input.sessionCatalog?.upsertActive({
+
+  // Record what the user actually asked, captured on the run that CREATED the
+  // session (the next turns continue it and must not overwrite it). mcode's own
+  // title cannot serve this purpose: it is derived from its first user message,
+  // which here is the bridge system prompt plus the request, and it truncates
+  // that title to ~50 characters — so the title is all system prompt.
+  const identity = {
     scopeId: input.scopeId,
-    agentId: 'mcode',
+    agentId: 'mcode' as const,
     cwdRealpath,
     policyFingerprint: input.policy.policyFingerprint,
+  };
+  const existing = input.sessionCatalog?.activeFor(identity);
+  const summary = existing?.lastSummary ?? summarizeUserMessage(input.policy.prompt);
+
+  input.sessionCatalog?.upsertActive({
+    ...identity,
     sessionId: input.event.sessionId,
+    ...(summary ? { lastSummary: summary } : {}),
   });
 }
