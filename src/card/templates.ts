@@ -142,9 +142,34 @@ export interface ResumeEntry {
   current?: boolean;
 }
 
-export function resumeCard(cwd: string, entries: ResumeEntry[]): object {
+export interface ResumeCardOptions {
+  /**
+   * True when the listed cwd is the profile's default workspace because no
+   * `/cd` was ever issued, rather than a directory the user chose.
+   *
+   * Surfaced in the card: a silently-chosen working directory is otherwise
+   * indistinguishable from an `/cd` that did not take effect, which is exactly
+   * the wrong conclusion to draw when the expected project is missing.
+   */
+  cwdIsProfileDefault?: boolean;
+}
+
+export function resumeCard(
+  cwd: string,
+  entries: ResumeEntry[],
+  options: ResumeCardOptions = {},
+): object {
   const elements: object[] = [];
   elements.push(divMd(`当前 cwd：\`${escapeCode(cwd)}\``));
+
+  if (options.cwdIsProfileDefault) {
+    elements.push(
+      divMd(
+        '_这是 profile 的默认工作目录（你还没用 `/cd` 选过项目目录）。_\n' +
+          '要用自己的项目，发 `/cd /绝对/路径`；已保存的目录用 `/ws use <名字>`。',
+      ),
+    );
+  }
 
   if (entries.length === 0) {
     elements.push(HR);

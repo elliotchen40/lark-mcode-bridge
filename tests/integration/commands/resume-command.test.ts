@@ -198,6 +198,34 @@ describe('mcode resume commands', () => {
     expect(resumeArgsFromCard(lastContent(h.channel))).toHaveLength(0);
   });
 
+  it('says the cwd is the profile default when no /cd was ever issued', async () => {
+    // A silently-chosen working directory looks exactly like an /cd that did
+    // not take effect, so the card must not hide that it is the default.
+    const h = await createHarness();
+    // The harness pre-sets a cwd (as if /cd had been used); drop it so this
+    // exercise really covers "no /cd yet".
+    h.workspaces.removeCwd('chat-1');
+    h.history.push(mcodeSession('mvs-here', 'in the default dir', 1_700_000_100_000));
+
+    await expect(h.run('/resume')).resolves.toBe(true);
+
+    const rendered = JSON.stringify(lastContent(h.channel));
+    expect(rendered).toContain('默认工作目录');
+    expect(rendered).toContain('/cd');
+  });
+
+  it('does not claim the cwd is a default once /cd has chosen one', async () => {
+    const h = await createHarness();
+    h.workspaces.setCwd('chat-1', h.identity.cwdRealpath);
+    h.history.push(mcodeSession('mvs-here', 'in my project', 1_700_000_100_000));
+
+    await expect(h.run('/resume')).resolves.toBe(true);
+
+    const rendered = JSON.stringify(lastContent(h.channel));
+    expect(rendered).toContain('in my project');
+    expect(rendered).not.toContain('默认工作目录');
+  });
+
   it('renders an empty history card when the session store has nothing for the cwd', async () => {
     const h = await createHarness();
 

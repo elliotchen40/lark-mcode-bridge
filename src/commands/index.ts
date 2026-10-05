@@ -217,6 +217,13 @@ export async function tryHandleCommand(ctx: CommandContext): Promise<boolean> {
   const args = parts.slice(1).join(' ');
   const h = handlers[cmd];
   if (!h) return false;
+  // Log which command ran, and where. Without the name, a mistyped or silently
+  // ineffective command is indistinguishable from one that never arrived.
+  log.info('command', 'dispatch', {
+    cmd,
+    ...(args ? { argChars: args.length } : {}),
+    cwd: effectiveWorkspaceCwd(ctx) ?? null,
+  });
   if (
     isAdminCommand(cmd) &&
     !canRunAdminCommand(ctx.controls.profileConfig, ctx.controls, ctx.msg.senderId).ok
@@ -542,7 +549,8 @@ async function handleResume(args: string, ctx: CommandContext): Promise<void> {
   const n = Number.parseInt(sub, 10);
   const limit = Number.isFinite(n) && n > 0 && n <= 20 ? n : 5;
 
-  const cwd = selectedResumeCwd(ctx);
+  const selected = selectedResumeCwd(ctx);
+  const cwd = selected.cwd;
   if (!cwd) {
     await reply(ctx, '请先使用 /cd <path> 选择工作目录，再查看或恢复会话。');
     return;
@@ -575,7 +583,7 @@ async function handleResume(args: string, ctx: CommandContext): Promise<void> {
     detail: 'MiniMax Code',
     current: s.sessionId === currentSession?.sessionId,
   }));
-  const card = resumeCard(cwd, entries);
+  const card = resumeCard(cwd, entries, { cwdIsProfileDefault: !selected.explicit });
   await ctx.channel.send(ctx.msg.chatId, { card }, commandReplyOptions(ctx));
 }
 
@@ -607,7 +615,7 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
     return;
   }
 
-  const cwd = selectedResumeCwd(ctx);
+  const cwd = selectedResumeCwd(ctx).cwd;
   if (!cwd) {
     await reply(ctx, '请先使用 /cd <path> 选择工作目录，再查看或恢复会话。');
     return;
@@ -688,8 +696,19 @@ function effectiveWorkspaceCwd(ctx: CommandContext): string | undefined {
   return ctx.workspaces.cwdFor(ctx.scope) ?? ctx.controls.profileConfig.workspaces.default;
 }
 
-function selectedResumeCwd(ctx: CommandContext): string | undefined {
-  return effectiveWorkspaceCwd(ctx);
+/**
+ * The cwd `/resume` should list sessions for.
+ *
+ * `explicit` distinguishes a directory the user chose with `/cd` (or `/ws use`)
+ * from the profile's default workspace. The fallback to the profile default is
+ * deliberate — that IS where a run happened when no `/cd` was issued, so
+ * listing it is truthful — but it must be surfaced in the card, because a
+ * silently-chosen working directory looks exactly like an ineffective `/cd`.
+ */
+function selectedResumeCwd(ctx: CommandContext): { cwd: string | undefined; explicit: boolean } {
+  const chosen = ctx.workspaces.cwdFor(ctx.scope);
+  if (chosen) return { cwd: chosen, explicit: true };
+  return { cwd: ctx.controls.profileConfig.workspaces.default, explicit: false };
 }
 
 function runtimeAccessStatus(
