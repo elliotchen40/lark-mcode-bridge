@@ -17,6 +17,8 @@ import { WorkspaceStore } from '../../../src/workspace/store.js';
 import type { McodeSessionSummary } from '../../../src/agent/mcode/session-history.js';
 import { createFakeAgent } from '../../helpers/fake-agent.js';
 import { createFakeChannel, type FakeChannel } from '../../helpers/fake-channel.js';
+import { dirname } from 'node:path';
+import { resolveAppPaths } from '../../../src/config/app-paths.js';
 import { createTmpProfile, type TmpProfile } from '../../helpers/tmp-profile.js';
 
 interface Harness {
@@ -198,20 +200,39 @@ describe('mcode resume commands', () => {
     expect(resumeArgsFromCard(lastContent(h.channel))).toHaveLength(0);
   });
 
-  it('says the cwd is the profile default when no /cd was ever issued', async () => {
-    // A silently-chosen working directory looks exactly like an /cd that did
-    // not take effect, so the card must not hide that it is the default.
+  it('says the cwd is the bridge-managed placeholder when the user picked nothing', async () => {
+    // Launching the bridge from a project directory does NOT make it work
+    // there: with no /cd and no --workspace, the cwd is the empty directory
+    // the bridge creates for itself. That silent fallback looks exactly like a
+    // /cd that did not take effect, so the card must name it.
     const h = await createHarness();
-    // The harness pre-sets a cwd (as if /cd had been used); drop it so this
-    // exercise really covers "no /cd yet".
     h.workspaces.removeCwd('chat-1');
-    h.history.push(mcodeSession('mvs-here', 'in the default dir', 1_700_000_100_000));
+    h.controls.profileConfig.workspaces.default = resolveAppPaths({
+      rootDir: dirname(h.controls.configPath),
+      profile: h.controls.profile,
+    }).defaultWorkspaceDir;
+    h.history.push(mcodeSession('mvs-here', 'in the managed dir', 1_700_000_100_000));
 
     await expect(h.run('/resume')).resolves.toBe(true);
 
     const rendered = JSON.stringify(lastContent(h.channel));
     expect(rendered).toContain('默认工作目录');
     expect(rendered).toContain('/cd');
+  });
+
+  it('does not nag when the profile default is a real project the user chose', async () => {
+    // `workspaces.default` may legitimately point at a real project (set via
+    // --workspace at bootstrap or by editing the config). Telling that user
+    // they have not chosen a project would be wrong.
+    const h = await createHarness();
+    h.workspaces.removeCwd('chat-1');
+    h.history.push(mcodeSession('mvs-here', 'in my project', 1_700_000_100_000));
+
+    await expect(h.run('/resume')).resolves.toBe(true);
+
+    const rendered = JSON.stringify(lastContent(h.channel));
+    expect(rendered).toContain('in my project');
+    expect(rendered).not.toContain('默认工作目录');
   });
 
   it('does not claim the cwd is a default once /cd has chosen one', async () => {

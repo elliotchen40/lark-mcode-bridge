@@ -583,7 +583,7 @@ async function handleResume(args: string, ctx: CommandContext): Promise<void> {
     detail: 'MiniMax Code',
     current: s.sessionId === currentSession?.sessionId,
   }));
-  const card = resumeCard(cwd, entries, { cwdIsProfileDefault: !selected.explicit });
+  const card = resumeCard(cwd, entries, { cwdIsManagedDefault: selected.managed });
   await ctx.channel.send(ctx.msg.chatId, { card }, commandReplyOptions(ctx));
 }
 
@@ -699,16 +699,29 @@ function effectiveWorkspaceCwd(ctx: CommandContext): string | undefined {
 /**
  * The cwd `/resume` should list sessions for.
  *
- * `explicit` distinguishes a directory the user chose with `/cd` (or `/ws use`)
- * from the profile's default workspace. The fallback to the profile default is
- * deliberate — that IS where a run happened when no `/cd` was issued, so
- * listing it is truthful — but it must be surfaced in the card, because a
- * silently-chosen working directory looks exactly like an ineffective `/cd`.
+ * Precedence: the chat's own `/cd` choice, then the profile's configured
+ * default. The profile default is NOT the directory the bridge was launched
+ * from — it is `<root>-workspaces/<profile>/default`, an empty directory the
+ * bridge creates for itself — unless `--workspace` was passed at bootstrap or
+ * the config was edited. That is why launching from a project directory does
+ * not make the bridge work in that project.
+ *
+ * `managed` marks the case where the cwd is still that empty managed
+ * directory, i.e. the user has not pointed the bridge anywhere real yet. The
+ * card says so, because a silently-chosen working directory is otherwise
+ * indistinguishable from an `/cd` that did not take effect.
  */
-function selectedResumeCwd(ctx: CommandContext): { cwd: string | undefined; explicit: boolean } {
+function selectedResumeCwd(ctx: CommandContext): { cwd: string | undefined; managed: boolean } {
   const chosen = ctx.workspaces.cwdFor(ctx.scope);
-  if (chosen) return { cwd: chosen, explicit: true };
-  return { cwd: ctx.controls.profileConfig.workspaces.default, explicit: false };
+  if (chosen) return { cwd: chosen, managed: false };
+  const fallback = ctx.controls.profileConfig.workspaces.default;
+  let managedDefault: string | undefined;
+  try {
+    managedDefault = commandProfilePaths(ctx).defaultWorkspaceDir;
+  } catch {
+    managedDefault = undefined;
+  }
+  return { cwd: fallback, managed: Boolean(managedDefault) && fallback === managedDefault };
 }
 
 function runtimeAccessStatus(

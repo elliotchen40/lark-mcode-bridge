@@ -144,14 +144,19 @@ export interface ResumeEntry {
 
 export interface ResumeCardOptions {
   /**
-   * True when the listed cwd is the profile's default workspace because no
-   * `/cd` was ever issued, rather than a directory the user chose.
+   * True when the listed cwd is the bridge's own empty managed workspace
+   * (`<root>-workspaces/<profile>/default`) rather than anything the user
+   * chose.
    *
-   * Surfaced in the card: a silently-chosen working directory is otherwise
-   * indistinguishable from an `/cd` that did not take effect, which is exactly
-   * the wrong conclusion to draw when the expected project is missing.
+   * Deliberately narrower than "no /cd was issued": a profile may have its
+   * default workspace pointed at a real project on purpose (via
+   * `--workspace` at bootstrap or by editing the config), and telling that
+   * user they have not chosen a project would be wrong.
+   *
+   * Surfaced in the card because a silently-chosen working directory is
+   * otherwise indistinguishable from an `/cd` that did not take effect.
    */
-  cwdIsProfileDefault?: boolean;
+  cwdIsManagedDefault?: boolean;
 }
 
 export function resumeCard(
@@ -162,7 +167,7 @@ export function resumeCard(
   const elements: object[] = [];
   elements.push(divMd(`当前 cwd：\`${escapeCode(cwd)}\``));
 
-  if (options.cwdIsProfileDefault) {
+  if (options.cwdIsManagedDefault) {
     elements.push(
       divMd(
         '_这是 profile 的默认工作目录（你还没用 `/cd` 选过项目目录）。_\n' +
