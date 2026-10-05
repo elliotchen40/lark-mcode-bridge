@@ -40,7 +40,9 @@ export interface AppPaths {
   appLockFile(appId: string): string;
 }
 
-const DEFAULT_PROFILE = 'claude';
+/** Fallback profile name. A profile is a label, not an agent kind — mcode is
+ *  the only supported agent. */
+const DEFAULT_PROFILE = 'default';
 
 export function resolveAppPaths(opts: ResolveAppPathsOptions = {}): AppPaths {
   const rootDir = opts.rootDir ?? process.env.LARK_CHANNEL_HOME ?? join(homedir(), '.lark-channel');

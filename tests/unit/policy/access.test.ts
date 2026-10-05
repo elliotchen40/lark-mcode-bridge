@@ -166,7 +166,7 @@ function profileWithAccess(
   mode: ProfileConfig['mode'] = 'personal',
 ): ProfileConfig {
   return createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     mode,
     accounts: {
       app: {

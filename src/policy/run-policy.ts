@@ -1,11 +1,9 @@
 import type { AgentCapability } from '../agent/capability';
 import {
-  accessToClaudePermissionMode,
-  accessToCodexSandbox,
+  accessToMcodePolicy,
   clampAccess,
   type AccessMode,
-  type ClaudePermissionMode,
-  type CodexSandboxMode,
+  type McodePermissionPolicy,
 } from '../config/permissions';
 import type { ProfileConfig } from '../config/profile-schema';
 import type { AccessDecision } from './access';
@@ -52,8 +50,6 @@ export interface RunPolicyInput {
   capability: AgentCapability;
   profileConfig: ProfileConfig;
   now: number;
-  codexHome?: string;
-  inheritCodexHome?: boolean;
   ttlMs?: number;
 }
 
@@ -63,8 +59,7 @@ export interface RunPolicyAllow {
   requestedCwd: string;
   cwdRealpath: string;
   accessMode: AccessMode;
-  sandbox: CodexSandboxMode;
-  permissionMode: ClaudePermissionMode;
+  permission: McodePermissionPolicy;
   access: AccessDecision;
   attachments: AgentAttachment[];
   policyFingerprint: string;
@@ -109,11 +104,7 @@ export function evaluateRunPolicy(input: RunPolicyInput): RunPolicyResult {
     input.profileConfig.permissions.maxAccess,
     input.capability.permissions.maxAccess,
   );
-  const sandbox = accessToCodexSandbox(accessMode);
-  const permissionMode = accessToClaudePermissionMode(
-    accessMode,
-    input.profileConfig.permissions,
-  );
+  const permission = accessToMcodePolicy(accessMode, input.profileConfig.permissions);
   const resourceDigest = resourceScopeDigest({
     source: input.scope.source,
     chatId: input.scope.chatId,
@@ -133,19 +124,16 @@ export function evaluateRunPolicy(input: RunPolicyInput): RunPolicyResult {
     requestedCwd: input.requestedCwd,
     cwdRealpath: input.cwdRealpath,
     accessMode,
-    sandbox,
-    permissionMode,
+    permission,
     access: input.access,
     attachments: input.attachments,
     expiresAt: input.now + (input.ttlMs ?? DEFAULT_TTL_MS),
     policyFingerprint: policyFingerprint({
       cwdRealpath: input.cwdRealpath,
-      sandbox,
+      permission,
       accessPolicyDigest: accessDigest,
       resourceScopeDigest: resourceDigest,
       attachmentPolicyShapeDigest: attachmentDigest,
-      codexHome: input.codexHome,
-      inheritCodexHome: input.inheritCodexHome ?? false,
     }),
   };
 }

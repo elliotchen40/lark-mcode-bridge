@@ -141,7 +141,7 @@ function makeControls(opts: {
   defaultWorkspace?: string;
 }): Controls {
   const profileConfig = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',

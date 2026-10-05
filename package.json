@@ -101,9 +101,9 @@
   "keywords": [
     "feishu",
     "lark",
-    "claude",
-    "claude-code",
-    "codex",
+    "mcode",
+    "minimax",
+    "minimax-code",
     "cli",
     "channel",
     "bridge"

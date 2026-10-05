@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { configFormCard, type ConfigFormOpts } from '../../../src/card/config-card';
 
 const base: ConfigFormOpts = {
-  agentKind: 'claude',
+  agentKind: 'mcode',
   mode: 'personal',
   model: 'default',
   messageReply: 'markdown',

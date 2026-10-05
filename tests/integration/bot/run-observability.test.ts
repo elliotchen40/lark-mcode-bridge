@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { claudeCapability } from '../../../src/agent/capability';
+import { mcodeCapability } from '../../../src/agent/capability';
 import { ActiveRuns } from '../../../src/bot/active-runs';
 import { ProcessPool } from '../../../src/bot/process-pool';
 import { startRunFlow } from '../../../src/bot/run-flow';
@@ -33,7 +33,7 @@ describe('bot run observability', () => {
       prompt: 'hello',
       attachments: [],
       access: { ok: true, reason: 'allowed-user' },
-      capability: claudeCapability(h.profileConfig),
+      capability: mcodeCapability(h.profileConfig),
       profileConfig: h.profileConfig,
       sessions: h.sessions,
       workspaces: h.workspaces,
@@ -92,7 +92,7 @@ async function createHarness(): Promise<{
     postDoneExitGraceMs: 1,
   });
   const base = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',

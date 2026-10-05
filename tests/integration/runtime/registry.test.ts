@@ -29,8 +29,8 @@ describe('process registry', () => {
     const registryFile = join(root, 'registry', 'processes.json');
     const body = {
       entries: [
-        entry({ id: 'dead', pid: 999_999_999, profileName: 'claude', agentKind: 'claude' }),
-        entry({ id: 'self', pid: process.pid, profileName: 'codex', agentKind: 'codex' }),
+        entry({ id: 'dead', pid: 999_999_999, profileName: 'stale', agentKind: 'mcode' }),
+        entry({ id: 'self', pid: process.pid, profileName: 'live', agentKind: 'mcode' }),
       ],
     };
     await writeJson(registryFile, body);
@@ -46,7 +46,7 @@ describe('process registry', () => {
     const root = await makeRoot();
     const registryFile = join(root, 'registry', 'processes.json');
     await writeJson(registryFile, {
-      entries: [entry({ id: 'dead', pid: 999_999_999, profileName: 'claude', agentKind: 'claude' })],
+      entries: [entry({ id: 'dead', pid: 999_999_999, profileName: 'stale', agentKind: 'mcode' })],
     });
 
     const registered = await register({
@@ -55,7 +55,7 @@ describe('process registry', () => {
       configPath: join(root, 'config.json'),
       version: '0.1.32',
       profileName: 'codex-dev',
-      agentKind: 'codex',
+      agentKind: 'mcode',
       registryFile,
     });
 
@@ -66,7 +66,7 @@ describe('process registry', () => {
       appId: 'cli_test',
       tenant: 'feishu',
       profileName: 'codex-dev',
-      agentKind: 'codex',
+      agentKind: 'mcode',
       pid: process.pid,
     });
 
@@ -83,8 +83,8 @@ function entry(overrides: Partial<ProcessEntry>): ProcessEntry {
     configPath: '/tmp/config.json',
     startedAt: new Date().toISOString(),
     version: '0.1.32',
-    profileName: 'claude',
-    agentKind: 'claude',
+    profileName: 'default',
+    agentKind: 'mcode',
     ...overrides,
   };
 }

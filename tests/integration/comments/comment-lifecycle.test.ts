@@ -331,10 +331,10 @@ function activeCommentScopes(h: { activeRuns: ActiveRuns }, threadScopeId: strin
 
 function profile(defaultWorkspace: string): ProfileConfig {
   const config = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: { app: { id: 'cli_test', secret: '${APP_SECRET}', tenant: 'feishu' } },
     access: { allowedUsers: ['ou-user', 'ou-bot'] },
-    sandbox: { defaultMode: 'read-only', maxMode: 'workspace-write' },
+    permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
   });
   config.comments = {};
   config.workspaces.default = defaultWorkspace;

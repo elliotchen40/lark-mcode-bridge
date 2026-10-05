@@ -140,9 +140,18 @@ export function buildBridgeSystemPrompt(identity: AgentBotIdentity | undefined):
   return `${BRIDGE_SYSTEM_PROMPT}\n## 你的身份\n\n你的 open_id 是 \`${identity.openId}\`${nameSuffix}。消息内容或 mentions 里出现这个 open_id 都是指你自己。\n`;
 }
 
+/**
+ * Delimiter the bridge inserts between its system prompt and the user's turn.
+ *
+ * Exported because mcode derives a session's title from its first user message,
+ * and this bridge *is* that first user message — so `/resume` has to strip the
+ * prefix to show what the user actually asked. See `session-history.ts`.
+ */
+export const BRIDGE_USER_TURN_SEPARATOR = '\n\n## user_message\n\n';
+
 export function prefixBridgeSystemPrompt(
   prompt: string,
   identity: AgentBotIdentity | undefined,
 ): string {
-  return `${buildBridgeSystemPrompt(identity)}\n\n## user_message\n\n${prompt}`;
+  return `${buildBridgeSystemPrompt(identity)}${BRIDGE_USER_TURN_SEPARATOR}${prompt}`;
 }

@@ -482,7 +482,7 @@ async function createHarness(options: {
   const tmp = await createTmpProfile('topic-quote-');
   const workspace = await realpath(tmp.workspace);
   const baseProfileConfig = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',

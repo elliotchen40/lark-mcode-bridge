@@ -6,7 +6,6 @@ import { resolveAppPaths } from '../../../src/config/app-paths';
 import { clearKeystoreDerivedKeyCache, setSecret } from '../../../src/config/keystore';
 import {
   createDefaultProfileConfig,
-  type AgentKind,
   type RootConfig,
 } from '../../../src/config/profile-schema';
 import { secretKeyForApp } from '../../../src/config/schema';
@@ -40,7 +39,7 @@ describe('profile retention and export', () => {
   it('ignores stale registry entries that are not protected by a runtime lock', async () => {
     const root = await makeRoot();
     await writeProfiles(root, 'claude', ['claude', 'codex-dev']);
-    await writeRegistry(root, [processEntry({ profileName: 'codex-dev', agentKind: 'codex' })]);
+    await writeRegistry(root, [processEntry({ profileName: 'mcode-dev', agentKind: 'mcode' })]);
 
     await runProfileRemove('codex-dev', { rootDir: root });
 
@@ -52,7 +51,7 @@ describe('profile retention and export', () => {
     await writeProfiles(root, 'claude', ['claude', 'codex-dev']);
     const appPaths = resolveAppPaths({ rootDir: root, profile: 'codex-dev' });
 
-    await withProfileAndAppLocks(appPaths, 'cli_codex_dev', 'codex', async () => {
+    await withProfileAndAppLocks(appPaths, 'cli_mcode_dev', 'mcode', async () => {
       await expect(runProfileRemove('codex-dev', { rootDir: root })).rejects.toThrow(/locked|running/i);
     });
 
@@ -112,9 +111,9 @@ describe('profile retention and export', () => {
   it('archives the last active profile and clears root config so the name can be recreated', async () => {
     const root = await makeRoot();
     await writeProfiles(root, 'codex', ['codex']);
-    const codex = await writeVersionExecutable(root, 'codex-bin', 'codex 1.2.3');
-    const oldCodexBin = process.env.LARK_CHANNEL_CODEX_BIN;
-    process.env.LARK_CHANNEL_CODEX_BIN = codex;
+    const mcode = await writeVersionExecutable(root, 'mcode', 'mcode 1.2.3');
+    const oldMcodeBin = process.env.LARK_CHANNEL_MCODE_BIN;
+    process.env.LARK_CHANNEL_MCODE_BIN = mcode;
 
     try {
       await runProfileRemove('codex', { rootDir: root });
@@ -124,21 +123,21 @@ describe('profile retention and export', () => {
       await expect(stat(join(root, 'profiles', 'codex'))).rejects.toMatchObject({ code: 'ENOENT' });
       await runProfileCreate('codex', {
         rootDir: root,
-        agent: 'codex',
+        agent: 'mcode',
         appId: 'cli_recreated',
         appSecret: 'manual-secret',
         tenant: 'feishu',
       });
     } finally {
-      if (oldCodexBin === undefined) {
-        delete process.env.LARK_CHANNEL_CODEX_BIN;
+      if (oldMcodeBin === undefined) {
+        delete process.env.LARK_CHANNEL_MCODE_BIN;
       } else {
-        process.env.LARK_CHANNEL_CODEX_BIN = oldCodexBin;
+        process.env.LARK_CHANNEL_MCODE_BIN = oldMcodeBin;
       }
     }
     const config = await readRoot(root);
     expect(config.activeProfile).toBe('codex');
-    expect(config.profiles.codex?.agentKind).toBe('codex');
+    expect(config.profiles.codex?.agentKind).toBe('mcode');
   });
 
   it('adds a suffix when archive names collide', async () => {
@@ -261,12 +260,7 @@ describe('profile retention and export', () => {
     profile.permissions = {
       defaultAccess: 'workspace',
       maxAccess: 'workspace',
-    };
-    profile.sandbox = {
-      default: 'workspace-write',
-      max: 'workspace-write',
-      defaultMode: 'workspace-write',
-      maxMode: 'workspace-write',
+      mcode: { policy: 'smart' },
     };
     (profile as typeof profile & { permissionSource?: string }).permissionSource = 'permissions';
     await writeJson(join(root, 'config.json'), rootConfig);
@@ -282,8 +276,10 @@ describe('profile retention and export', () => {
     expect(exported.profiles.claude?.permissions).toEqual({
       defaultAccess: 'workspace',
       maxAccess: 'workspace',
+      mcode: { policy: 'smart' },
     });
     expect(exported.profiles.claude).not.toHaveProperty('sandbox');
+    expect(exported.profiles.claude).not.toHaveProperty('codex');
     expect(exported.profiles.claude).not.toHaveProperty('permissionSource');
   });
 });
@@ -297,9 +293,8 @@ async function makeRoot(): Promise<string> {
 async function writeProfiles(root: string, activeProfile: string, names: string[]): Promise<void> {
   const profiles: RootConfig['profiles'] = {};
   for (const name of names) {
-    const agentKind: AgentKind = name.startsWith('codex') ? 'codex' : 'claude';
     profiles[name] = createDefaultProfileConfig({
-      agentKind,
+      agentKind: 'mcode',
       accounts: {
         app: {
           id: `cli_${name.replace(/[^A-Za-z0-9]/g, '_')}`,
@@ -307,7 +302,6 @@ async function writeProfiles(root: string, activeProfile: string, names: string[
           tenant: 'feishu',
         },
       },
-      ...(agentKind === 'codex' ? { codex: { binaryPath: 'codex' } } : {}),
     });
     await mkdir(join(root, 'profiles', name), { recursive: true });
   }
@@ -331,8 +325,8 @@ function processEntry(overrides: Partial<ProcessEntry>): ProcessEntry {
     pid: process.pid,
     appId: 'cli_test',
     tenant: 'feishu',
-    profileName: 'claude',
-    agentKind: 'claude',
+    profileName: 'mcode-dev',
+    agentKind: 'mcode',
     configPath: '/tmp/config.json',
     startedAt: new Date().toISOString(),
     version: '0.1.32',

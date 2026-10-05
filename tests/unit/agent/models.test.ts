@@ -9,40 +9,44 @@ import {
 } from '../../../src/agent/models.js';
 
 describe('agent model catalog', () => {
-  it('offers a distinct catalog per agent kind, each led by the default sentinel', () => {
-    const claude = supportedModels('claude');
-    const codex = supportedModels('codex');
-    expect(claude[0]?.value).toBe(DEFAULT_MODEL);
-    expect(codex[0]?.value).toBe(DEFAULT_MODEL);
-    expect(claude.map((m) => m.value)).toContain('claude-opus-4-8');
-    expect(codex.map((m) => m.value)).toContain('gpt-5-codex');
-    expect(claude.map((m) => m.value)).not.toContain('gpt-5-codex');
+  it('offers a single mcode catalog led by the default sentinel', () => {
+    const models = supportedModels();
+    expect(models[0]?.value).toBe(DEFAULT_MODEL);
+    expect(models.map((m) => m.value)).toContain('minimax/MiniMax-M3');
+    // Every concrete option is a qualified `provider/model` id.
+    expect(models.filter((m) => m.value !== DEFAULT_MODEL).every((m) => m.value.includes('/'))).toBe(
+      true,
+    );
+    // No leftovers from the agents this bridge no longer drives.
+    expect(models.map((m) => m.value)).not.toContain('gpt-5-codex');
+    expect(models.map((m) => m.value)).not.toContain('claude-opus-4-8');
   });
 
   it('treats unset and the default sentinel as "use agent default"', () => {
     expect(isDefaultModel(undefined)).toBe(true);
     expect(isDefaultModel('')).toBe(true);
     expect(isDefaultModel(DEFAULT_MODEL)).toBe(true);
-    expect(isDefaultModel('claude-opus-4-8')).toBe(false);
+    expect(isDefaultModel('minimax/MiniMax-M3')).toBe(false);
   });
 
-  it('coerces unknown / cross-agent selections back to the default option', () => {
-    expect(normalizeModelSelection('claude', 'claude-opus-4-8')).toBe('claude-opus-4-8');
-    // A Codex model left over after switching a profile to Claude is invalid.
-    expect(normalizeModelSelection('claude', 'gpt-5-codex')).toBe(DEFAULT_MODEL);
-    expect(normalizeModelSelection('claude', undefined)).toBe(DEFAULT_MODEL);
+  it('coerces unknown / renamed selections back to the default option', () => {
+    expect(normalizeModelSelection('minimax/MiniMax-M3')).toBe('minimax/MiniMax-M3');
+    // A model id that is no longer offered (e.g. left over from a profile
+    // written for another agent) must not reach the picker.
+    expect(normalizeModelSelection('gpt-5-codex')).toBe(DEFAULT_MODEL);
+    expect(normalizeModelSelection(undefined)).toBe(DEFAULT_MODEL);
   });
 
   it('resolves the --model argument, omitting it for the default', () => {
-    expect(resolveModelArg('claude', 'claude-sonnet-5')).toBe('claude-sonnet-5');
-    expect(resolveModelArg('claude', DEFAULT_MODEL)).toBeUndefined();
-    expect(resolveModelArg('claude', undefined)).toBeUndefined();
-    // Cross-agent value → no flag rather than a broken model.
-    expect(resolveModelArg('codex', 'claude-opus-4-8')).toBeUndefined();
+    expect(resolveModelArg('minimax/MiniMax-M2.7')).toBe('minimax/MiniMax-M2.7');
+    expect(resolveModelArg(DEFAULT_MODEL)).toBeUndefined();
+    expect(resolveModelArg(undefined)).toBeUndefined();
+    // Unknown value → no flag rather than a broken model.
+    expect(resolveModelArg('gpt-5-codex')).toBeUndefined();
   });
 
   it('labels a stored value using the picker option text', () => {
-    expect(modelLabel('claude', 'claude-opus-4-8')).toBe('Opus 4.8（最新）');
-    expect(modelLabel('claude', DEFAULT_MODEL)).toContain('跟随默认');
+    expect(modelLabel('minimax/MiniMax-M3')).toBe('MiniMax M3');
+    expect(modelLabel(DEFAULT_MODEL)).toContain('跟随默认');
   });
 });

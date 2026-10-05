@@ -95,13 +95,13 @@ describe('profile-aware account and config commands', () => {
     const h = await createHarness();
 
     await h.command('/config submit', {
-      model: 'claude-opus-4-8',
+      model: 'minimax/MiniMax-M3.1-Flash-Preview',
       message_reply: 'text',
     });
     const withModel = await waitForRoot(h.rootDir, (candidate) =>
-      candidate.profiles.claude?.preferences.model === 'claude-opus-4-8',
+      candidate.profiles.claude?.preferences.model === 'minimax/MiniMax-M3.1-Flash-Preview',
     );
-    expect(withModel.profiles.claude?.preferences.model).toBe('claude-opus-4-8');
+    expect(withModel.profiles.claude?.preferences.model).toBe('minimax/MiniMax-M3.1-Flash-Preview');
 
     await h.command('/config submit', {
       model: 'default',
@@ -303,18 +303,18 @@ async function writeRoot(
     preferences: {},
     profiles: {
       claude: createDefaultProfileConfig({
-        agentKind: 'claude',
+        agentKind: 'mcode',
         accounts: {
           app: { id: 'cli_old', secret: '${APP_SECRET}', tenant: 'feishu' },
         },
         access: { admins: ['ou-admin'] },
       }),
       'codex-dev': createDefaultProfileConfig({
-        agentKind: 'codex',
+        agentKind: 'mcode',
         accounts: {
           app: { id: 'cli_codex', secret: '${APP_SECRET}', tenant: 'feishu' },
         },
-        codex: { binaryPath: 'codex' },
+        mcode: { binaryPath: 'mcode' },
       }),
     },
   };

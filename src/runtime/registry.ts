@@ -64,7 +64,7 @@ function isValidEntry(e: unknown): e is ProcessEntry {
     typeof x.appId === 'string' &&
     (x.tenant === 'feishu' || x.tenant === 'lark') &&
     typeof x.profileName === 'string' &&
-    (x.agentKind === 'claude' || x.agentKind === 'codex') &&
+    (x.agentKind === 'mcode') &&
     typeof x.configPath === 'string' &&
     typeof x.startedAt === 'string' &&
     typeof x.version === 'string'
@@ -136,8 +136,8 @@ export async function register(args: RegisterArgs): Promise<ProcessEntry> {
     pid: process.pid,
     appId: args.appId,
     tenant: args.tenant,
-    profileName: args.profileName ?? 'claude',
-    agentKind: args.agentKind ?? 'claude',
+    profileName: args.profileName ?? 'mcode',
+    agentKind: args.agentKind ?? 'mcode',
     configPath: args.configPath,
     startedAt: new Date().toISOString(),
     version: args.version,

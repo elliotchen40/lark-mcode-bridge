@@ -26,7 +26,7 @@ interface Harness {
 
 const cleanups: Array<() => Promise<void>> = [];
 
-describe('Claude slash command visible behavior', () => {
+describe('slash command visible behavior', () => {
   afterEach(async () => {
     vi.useRealTimers();
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
@@ -150,7 +150,8 @@ describe('Claude slash command visible behavior', () => {
     expect(help).toContain('Fake Agent');
     expect(help).toContain('lark-cli 身份策略');
     expect(help).not.toContain('/lark');
-    expect(help).not.toContain('交给 Claude');
+    // The help names the injected adapter, not a hardcoded agent.
+    expect(help).toContain('交给 Fake Agent');
   });
 
   it('reports lark-cli user-ready for structured user records', async () => {
@@ -357,7 +358,7 @@ async function createHarness(): Promise<Harness> {
 
 function appConfig(defaultWorkspace: string): ProfileConfig {
   const config = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: { app: { id: 'app-id', secret: 'secret', tenant: 'feishu' } },
     access: { admins: ['ou-user'] },
   });

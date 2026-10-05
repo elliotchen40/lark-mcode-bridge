@@ -185,7 +185,7 @@ function makeSchtasksAdapter(profile: string, runArgs: string[]): ServiceAdapter
  * `install()`; stop/status/etc. ignore them.
  */
 export function getServiceAdapter(
-  profile = 'claude',
+  profile = 'default',
   runArgs: string[] = ['run'],
 ): ServiceAdapter | null {
   if (process.platform === 'darwin') return makeLaunchdAdapter(profile, runArgs);

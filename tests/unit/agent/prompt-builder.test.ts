@@ -104,8 +104,12 @@ describe('agent prompt builder', () => {
 
     expect(source).not.toContain('命令必须写成 env -u LARK_CHANNEL');
     expect(source).not.toContain('env -u LARK_CHANNEL lark-cli');
-    expect(source).toContain('danger-full-access');
-    expect(source).toContain('bypassPermissions');
+    // mcode's `--permission full` is this bridge's equivalent of the retired
+    // Codex `danger-full-access` / Claude `bypassPermissions` pairing: lark-cli
+    // must be able to reach the keychain like the user's own terminal.
+    expect(source).toContain('--permission full');
+    expect(source).not.toContain('danger-full-access');
+    expect(source).not.toContain('bypassPermissions');
     expect(source).toContain('不要 unset LARK_CHANNEL');
     expect(source).toContain('LARKSUITE_CLI_CONFIG_DIR');
     expect(source).not.toContain('lark-cli config bind --source lark-channel');

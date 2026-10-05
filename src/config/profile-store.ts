@@ -56,7 +56,7 @@ type StoredProfileConfig = Pick<
   | 'access'
   | 'workspaces'
   | 'permissions'
-  | 'codex'
+  | 'mcode'
   | 'attachments'
   | 'comments'
   | 'meeting'
@@ -95,7 +95,7 @@ function serializeProfileConfig(profile: ProfileConfig): StoredProfileConfig {
     access: profile.access,
     workspaces: profile.workspaces,
     permissions: profile.permissions,
-    ...(profile.codex ? { codex: profile.codex } : {}),
+    ...(profile.mcode ? { mcode: profile.mcode } : {}),
     attachments: profile.attachments,
     comments: {},
     meeting: profile.meeting,
@@ -296,7 +296,9 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 export function agentKindFromString(value: string | undefined): AgentKind | undefined {
-  if (value === 'claude' || value === 'codex') return value;
   if (value === undefined) return undefined;
+  // Configs written by the pre-mcode fork carried 'claude' / 'codex'; they now
+  // all mean the single supported agent.
+  if (value === 'mcode' || value === 'claude' || value === 'codex') return 'mcode';
   throw new Error(`unsupported agent: ${value}`);
 }

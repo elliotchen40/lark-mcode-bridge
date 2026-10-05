@@ -1,21 +1,20 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CardActionEvent, NormalizedMessage } from '@larksuite/channel';
-import { claudeCapability, codexCapability } from '../../../src/agent/capability.js';
+import { mcodeCapability } from '../../../src/agent/capability.js';
 import { ActiveRuns } from '../../../src/bot/active-runs.js';
 import type { ChatModeCache } from '../../../src/bot/chat-mode-cache.js';
 import { PendingQueue } from '../../../src/bot/pending-queue.js';
 import { handleCardAction } from '../../../src/card/dispatcher.js';
 import { tryHandleCommand, type CommandContext, type Controls } from '../../../src/commands/index.js';
-import { createDefaultProfileConfig, type AgentKind, type ProfileConfig } from '../../../src/config/profile-schema.js';
+import { createDefaultProfileConfig, type ProfileConfig } from '../../../src/config/profile-schema.js';
 import { canUseDm } from '../../../src/policy/access.js';
 import { evaluateRunPolicy } from '../../../src/policy/run-policy.js';
 import { resolveWorkingDirectory } from '../../../src/policy/workspace.js';
 import { SessionCatalog, type SessionCatalogIdentity } from '../../../src/session/catalog.js';
 import { SessionStore } from '../../../src/session/store.js';
 import { WorkspaceStore } from '../../../src/workspace/store.js';
-import type { CodexThreadHistoryEntry } from '../../../src/session/codex-history.js';
-import type { SessionSummary } from '../../../src/session/history.js';
+import type { McodeSessionSummary } from '../../../src/agent/mcode/session-history.js';
 import { createFakeAgent } from '../../helpers/fake-agent.js';
 import { createFakeChannel, type FakeChannel } from '../../helpers/fake-channel.js';
 import { createTmpProfile, type TmpProfile } from '../../helpers/tmp-profile.js';
@@ -28,8 +27,8 @@ interface Harness {
   catalog: SessionCatalog;
   controls: Controls;
   identity: SessionCatalogIdentity;
-  claudeHistory: SessionSummary[];
-  codexHistory: CodexThreadHistoryEntry[];
+  /** Stand-in for mcode's own sqlite session store. */
+  history: McodeSessionSummary[];
   activeRuns: ActiveRuns;
   pending: PendingQueue;
   run(content: string, options?: { withCatalogIdentity?: boolean; chatMode?: 'p2p' | 'group' | 'topic' }): Promise<boolean>;
@@ -38,55 +37,54 @@ interface Harness {
 
 const cleanups: Array<() => Promise<void>> = [];
 
-describe('agent-aware resume commands', () => {
+describe('mcode resume commands', () => {
   afterEach(async () => {
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
   });
 
   it('archives only the current catalog entry when starting a new conversation', async () => {
-    const h = await createHarness('claude');
-    h.catalog.upsertActive({ ...h.identity, sessionId: 'sess-current', now: 1000 });
+    const h = await createHarness();
+    h.catalog.upsertActive({ ...h.identity, sessionId: 'mvs-current', now: 1000 });
     h.catalog.upsertActive({
       ...h.identity,
-      agentId: 'codex',
-      threadId: 'thread-other-agent',
+      cwdRealpath: join(h.tmp.root, 'other-workspace'),
+      sessionId: 'mvs-other-cwd',
       now: 1000,
     });
 
     await expect(h.run('/new')).resolves.toBe(true);
 
     expect(h.catalog.activeFor(h.identity)).toBeUndefined();
-    expect(h.catalog.activeFor({ ...h.identity, agentId: 'codex' })).toMatchObject({
-      threadId: 'thread-other-agent',
-    });
+    const other = { ...h.identity, cwdRealpath: join(h.tmp.root, 'other-workspace') };
+    expect(h.catalog.activeFor(other)).toMatchObject({ sessionId: 'mvs-other-cwd' });
   });
 
   it('allows resume use only for the current agent/cwd/policy catalog entry', async () => {
-    const h = await createHarness('claude');
-    h.catalog.upsertActive({ ...h.identity, sessionId: 'sess-current', now: 1000 });
+    const h = await createHarness();
+    h.catalog.upsertActive({ ...h.identity, sessionId: 'mvs-current', now: 1000 });
     h.catalog.upsertActive({
       ...h.identity,
       policyFingerprint: 'stale-fp',
-      sessionId: 'sess-stale',
+      sessionId: 'mvs-stale',
       now: 1000,
     });
 
-    await expect(h.run('/resume use sess-stale')).resolves.toBe(true);
+    await expect(h.run('/resume use mvs-stale')).resolves.toBe(true);
     expect(h.sessions.getRaw('chat-1')).toBeUndefined();
     expect(lastMarkdown(h.channel)).toContain('不可恢复');
 
-    await expect(h.run('/resume use sess-current')).resolves.toBe(true);
-    expect(h.sessions.resumeFor('chat-1', h.identity.cwdRealpath)).toBe('sess-current');
+    await expect(h.run('/resume use mvs-current')).resolves.toBe(true);
+    expect(h.sessions.resumeFor('chat-1', h.identity.cwdRealpath)).toBe('mvs-current');
     expect(lastMarkdown(h.channel)).toContain('已完成');
   });
 
-  it('resumes the selected Claude history entry from the card button callback', async () => {
-    const h = await createHarness('claude');
-    h.sessions.set('chat-1', 'sess-current', h.identity.cwdRealpath);
-    h.catalog.upsertActive({ ...h.identity, sessionId: 'sess-current', now: 1000 });
-    h.claudeHistory.push(
-      claudeSession('sess-current', 'current prompt', 1_700_000_100_000),
-      claudeSession('sess-target', 'target prompt', 1_700_000_000_000),
+  it('resumes the selected mcode session from the card button callback', async () => {
+    const h = await createHarness();
+    h.sessions.set('chat-1', 'mvs-current', h.identity.cwdRealpath);
+    h.catalog.upsertActive({ ...h.identity, sessionId: 'mvs-current', now: 1000 });
+    h.history.push(
+      mcodeSession('mvs-current', 'current prompt', 1_700_000_100_000),
+      mcodeSession('mvs-target', 'target prompt', 1_700_000_000_000),
     );
 
     await expect(h.run('/resume')).resolves.toBe(true);
@@ -95,38 +93,25 @@ describe('agent-aware resume commands', () => {
     const rendered = JSON.stringify(card);
     expect(rendered).toContain('current prompt');
     expect(rendered).toContain('target prompt');
-    expect(rendered).toContain('sess-tar');
+    expect(rendered).toContain('mvs-targ');
 
     const nonces = resumeArgsFromCard(card);
     expect(nonces).toHaveLength(2);
-    expect(nonces[1]).not.toBe('sess-target');
+    expect(nonces[1]).not.toBe('mvs-target');
     await h.dispatchResumeArg(nonces[1]!);
 
-    expect(h.sessions.resumeFor('chat-1', h.identity.cwdRealpath)).toBe('sess-target');
+    expect(h.sessions.resumeFor('chat-1', h.identity.cwdRealpath)).toBe('mvs-target');
     expect(h.catalog.activeFor(h.identity)).toMatchObject({
-      sessionId: 'sess-target',
+      sessionId: 'mvs-target',
     });
     expect(lastMarkdown(h.channel)).toContain('已完成');
   });
 
-  it('accepts the current Codex thread without writing it into legacy SessionStore', async () => {
-    const h = await createHarness('codex');
-    h.catalog.upsertActive({ ...h.identity, threadId: 'thread-current', now: 1000 });
-
-    await expect(h.run('/resume')).resolves.toBe(true);
-    const nonce = resumeNonce(lastMarkdown(h.channel));
-
-    await expect(h.run(`/resume use ${nonce}`)).resolves.toBe(true);
-
-    expect(h.sessions.getRaw('chat-1')).toBeUndefined();
-    expect(lastMarkdown(h.channel)).toContain('已完成');
-  });
-
   it('falls back to an audit-safe reply when resume confirmation is rejected', async () => {
-    const h = await createHarness('codex');
-    h.catalog.upsertActive({ ...h.identity, threadId: 'thread-current', now: 1000 });
+    const h = await createHarness();
+    h.history.push(mcodeSession('mvs-current', 'current prompt', 1_700_000_100_000));
     await expect(h.run('/resume')).resolves.toBe(true);
-    const nonce = resumeNonce(lastMarkdown(h.channel));
+    const [nonce] = resumeArgsFromCard(lastContent(h.channel));
     const originalSend = h.channel.send.bind(h.channel);
     let attempts = 0;
     h.channel.send = async (...args) => {
@@ -145,49 +130,31 @@ describe('agent-aware resume commands', () => {
     expect(lastMarkdown(h.channel)).toBe('命令已处理。');
   });
 
-  it('shows only the current catalog-backed Codex thread in /resume', async () => {
-    const h = await createHarness('codex');
-    h.catalog.upsertActive({ ...h.identity, threadId: 'thread-current', now: 1000 });
+  it('does not accept a raw mcode session id as a resume candidate', async () => {
+    const h = await createHarness();
+    h.catalog.upsertActive({ ...h.identity, sessionId: 'mvs-current', now: 1000 });
+    h.history.push(mcodeSession('mvs-alpha', 'alpha prompt', 1_700_000_100_000));
 
     await expect(h.run('/resume')).resolves.toBe(true);
-
-    expect(lastMarkdown(h.channel)).toContain('当前 Codex thread 可恢复');
-    expect(lastMarkdown(h.channel)).toMatch(/\/resume use [a-f0-9-]+/);
-    expect(lastMarkdown(h.channel)).not.toContain('thread-current');
-  });
-
-  it('does not accept raw Codex thread ids as resume candidates', async () => {
-    const h = await createHarness('codex');
-    h.catalog.upsertActive({ ...h.identity, threadId: 'thread-current', now: 1000 });
-
-    await expect(h.run('/resume use thread-current')).resolves.toBe(true);
+    await expect(h.run('/resume use mvs-alpha')).resolves.toBe(true);
 
     expect(h.sessions.getRaw('chat-1')).toBeUndefined();
-    expect(lastMarkdown(h.channel)).toContain('请先用 `/resume`');
+    expect(lastMarkdown(h.channel)).toContain('不可恢复');
   });
 
-  it('does not fall back to legacy SessionStore when Codex catalog identity is missing', async () => {
-    const h = await createHarness('codex');
-
-    await expect(h.run('/resume use thread-current', { withCatalogIdentity: false })).resolves.toBe(true);
-
-    expect(h.sessions.getRaw('chat-1')).toBeUndefined();
-    expect(lastMarkdown(h.channel)).toContain('当前上下文没有可恢复的 Codex thread');
-  });
-
-  it('does not list Claude local history for Codex when no current thread is recorded', async () => {
-    const h = await createHarness('codex');
+  it('renders an empty history card when the session store has nothing for the cwd', async () => {
+    const h = await createHarness();
 
     await expect(h.run('/resume')).resolves.toBe(true);
 
     expect(lastContentString(h.channel)).toContain('此 cwd 下没有历史会话');
   });
 
-  it('lists Codex history for the current cwd and resumes the selected thread through a nonce', async () => {
-    const h = await createHarness('codex');
-    h.codexHistory.push(
-      codexThread('thread-alpha-secret', 'alpha prompt', 1_700_000_100_000),
-      codexThread('thread-beta-secret', 'beta prompt', 1_700_000_000_000),
+  it('lists mcode history for the current cwd and resumes the selected session through a nonce', async () => {
+    const h = await createHarness();
+    h.history.push(
+      mcodeSession('mvs-alpha-secret', 'alpha prompt', 1_700_000_100_000),
+      mcodeSession('mvs-beta-secret', 'beta prompt', 1_700_000_000_000),
     );
 
     await expect(h.run('/resume')).resolves.toBe(true);
@@ -196,23 +163,26 @@ describe('agent-aware resume commands', () => {
     const rendered = JSON.stringify(card);
     expect(rendered).toContain('alpha prompt');
     expect(rendered).toContain('beta prompt');
-    expect(rendered).not.toContain('thread-alpha-secret');
-    expect(rendered).not.toContain('thread-beta-secret');
+    // Only the display prefix is shown; the full session id stays behind the
+    // one-shot nonce the button carries.
+    expect(rendered).toContain('mvs-alph');
+    expect(rendered).toContain('mvs-beta');
+    expect(rendered).not.toContain('mvs-alpha-secret');
+    expect(rendered).not.toContain('mvs-beta-secret');
 
     const nonces = resumeArgsFromCard(card);
     expect(nonces).toHaveLength(2);
     await expect(h.run(`/resume use ${nonces[1]}`)).resolves.toBe(true);
 
     expect(h.catalog.activeFor(h.identity)).toMatchObject({
-      threadId: 'thread-beta-secret',
+      sessionId: 'mvs-beta-secret',
     });
-    expect(h.sessions.getRaw('chat-1')).toBeUndefined();
     expect(lastMarkdown(h.channel)).toContain('已完成');
   });
 
-  it('resumes a Codex history selection from the card button callback', async () => {
-    const h = await createHarness('codex');
-    h.codexHistory.push(codexThread('thread-alpha-secret', 'alpha prompt', 1_700_000_100_000));
+  it('resumes a mcode history selection from the card button callback', async () => {
+    const h = await createHarness();
+    h.history.push(mcodeSession('mvs-alpha-secret', 'alpha prompt', 1_700_000_100_000));
 
     await expect(h.run('/resume')).resolves.toBe(true);
 
@@ -221,44 +191,47 @@ describe('agent-aware resume commands', () => {
     await h.dispatchResumeArg(nonce!);
 
     expect(h.catalog.activeFor(h.identity)).toMatchObject({
-      threadId: 'thread-alpha-secret',
+      sessionId: 'mvs-alpha-secret',
     });
     expect(lastMarkdown(h.channel)).toContain('已完成');
   });
 
-  it('keeps Codex resume history details out of group chats like Claude', async () => {
-    const h = await createHarness('codex');
-    h.codexHistory.push(codexThread('thread-alpha-secret', 'alpha prompt', 1_700_000_100_000));
+  it('keeps mcode resume history details out of group chats', async () => {
+    const h = await createHarness();
+    h.history.push(mcodeSession('mvs-alpha-secret', 'alpha prompt', 1_700_000_100_000));
 
     await expect(h.run('/resume', { chatMode: 'group' })).resolves.toBe(true);
 
     const rendered = lastContentString(h.channel);
     expect(rendered).toContain('私聊');
     expect(rendered).not.toContain('alpha prompt');
-    expect(rendered).not.toContain('thread-alpha-secret');
+    expect(rendered).not.toContain('mvs-alpha-secret');
   });
 
-  it('labels Codex status as session while reading the recorded thread id', async () => {
-    const h = await createHarness('codex');
+  it('labels /status with the session recorded by a resume', async () => {
+    const h = await createHarness();
 
     await expect(h.run('/status')).resolves.toBe(true);
     let status = JSON.stringify(lastContent(h.channel));
     expect(status).toContain('**session**');
-    expect(status).toContain('未建立');
+    expect(status).toContain('(无)');
     expect(status).not.toContain('**thread**');
     expect(status).not.toContain('**conversation**');
 
-    h.catalog.upsertActive({ ...h.identity, threadId: 'thread-current', now: 1000 });
-    await expect(h.run('/status')).resolves.toBe(true);
+    h.history.push(mcodeSession('mvs-current', 'current prompt', 1_700_000_100_000));
+    await expect(h.run('/resume')).resolves.toBe(true);
+    const [nonce] = resumeArgsFromCard(lastContent(h.channel));
+    await expect(h.run(`/resume use ${nonce}`)).resolves.toBe(true);
 
+    await expect(h.run('/status')).resolves.toBe(true);
     status = JSON.stringify(lastContent(h.channel));
     expect(status).toContain('**session**');
-    expect(status).toContain('thread-c');
-    expect(status).not.toContain('未建立');
+    expect(status).toContain('mvs-curr');
+    expect(status).not.toContain('(无)');
   });
 
   it('does not list local history from home when no workspace is bound', async () => {
-    const h = await createHarness('claude', { bindWorkspace: false, defaultWorkspace: false });
+    const h = await createHarness({ bindWorkspace: false, defaultWorkspace: false });
 
     await expect(h.run('/resume')).resolves.toBe(true);
 
@@ -267,25 +240,23 @@ describe('agent-aware resume commands', () => {
 });
 
 async function createHarness(
-  agentKind: AgentKind,
   options: { bindWorkspace?: boolean; defaultWorkspace?: boolean } = {},
 ): Promise<Harness> {
-  const tmp = await createTmpProfile(`resume-command-${agentKind}-`);
+  const tmp = await createTmpProfile('resume-command-mcode-');
   const channel = createFakeChannel();
   const sessions = new SessionStore(join(tmp.profile, 'sessions.json'));
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
   const catalog = new SessionCatalog(join(tmp.profile, 'session-catalog.json'));
-  const claudeHistory: SessionSummary[] = [];
-  const codexHistory: CodexThreadHistoryEntry[] = [];
+  const history: McodeSessionSummary[] = [];
   const activeRuns = new ActiveRuns();
   const pending = new PendingQueue(60_000, () => {});
   const agent = createFakeAgent();
-  const profileConfig = appConfig(agentKind);
+  const profileConfig = appConfig();
   if (options.defaultWorkspace !== false) {
     profileConfig.workspaces.default = tmp.workspace;
   }
   const controls = {
-    profile: agentKind,
+    profile: 'mcode',
     profileConfig,
     botOwnerId: 'ou-user',
     ownerRefreshState: 'ok',
@@ -299,7 +270,7 @@ async function createHarness(
   if (options.bindWorkspace !== false) {
     workspaces.setCwd('chat-1', tmp.workspace);
   }
-  const identity = await commandIdentity(agentKind, profileConfig, controls, tmp.workspace);
+  const identity = await commandIdentity(profileConfig, controls, tmp.workspace);
   const chatModeCache = {
     resolve: async () => 'p2p',
   } as unknown as ChatModeCache;
@@ -320,8 +291,7 @@ async function createHarness(
       agent,
       activeRuns,
       controls,
-      claudeHistoryProvider: async () => claudeHistory,
-      codexHistoryProvider: async () => codexHistory,
+      sessionHistoryProvider: () => history,
     });
 
   const dispatchResumeArg = (arg: string): Promise<void> =>
@@ -352,8 +322,7 @@ async function createHarness(
     catalog,
     controls,
     identity,
-    claudeHistory,
-    codexHistory,
+    history,
     activeRuns,
     pending,
     run,
@@ -361,28 +330,22 @@ async function createHarness(
   };
 }
 
-function claudeSession(
+function mcodeSession(
   sessionId: string,
   preview: string,
   mtime: number,
-): SessionSummary {
-  return {
-    sessionId,
-    preview,
-    mtime,
-    lineCount: 1,
-  };
+): McodeSessionSummary {
+  return { sessionId, preview, mtime };
 }
 
 async function commandIdentity(
-  agentKind: AgentKind,
   profileConfig: ProfileConfig,
   controls: Controls,
   cwd: string,
 ): Promise<SessionCatalogIdentity> {
   const workspace = await resolveWorkingDirectory(cwd);
   if (!workspace.ok) throw new Error(workspace.userVisible);
-  const capability = agentKind === 'codex' ? codexCapability(profileConfig) : claudeCapability(profileConfig);
+  const capability = mcodeCapability(profileConfig);
   const access = canUseDm(profileConfig, controls, 'ou-user');
   const policy = evaluateRunPolicy({
     scope: {
@@ -398,8 +361,6 @@ async function commandIdentity(
     capability,
     profileConfig,
     now: Date.now(),
-    codexHome: profileConfig.codex?.codexHome,
-    inheritCodexHome: profileConfig.codex?.inheritCodexHome,
   });
   if (!policy.ok) throw new Error(policy.rejectReason.userVisible);
   return {
@@ -410,12 +371,11 @@ async function commandIdentity(
   };
 }
 
-function appConfig(agentKind: AgentKind): ProfileConfig {
+function appConfig(): ProfileConfig {
   return createDefaultProfileConfig({
-    agentKind,
+    agentKind: 'mcode',
     accounts: { app: { id: 'app-id', secret: 'secret', tenant: 'feishu' } },
     access: { admins: ['ou-user'] },
-    ...(agentKind === 'codex' ? { codex: { binaryPath: '/usr/local/bin/codex' } } : {}),
   });
 }
 
@@ -460,14 +420,6 @@ function lastContentString(channel: FakeChannel): string {
   return JSON.stringify(lastContent(channel));
 }
 
-function resumeNonce(markdown: string): string {
-  const match = markdown.match(/\/resume use ([a-f0-9-]+)/);
-  const nonce = match?.[1];
-  expect(nonce).toBeTypeOf('string');
-  if (!nonce) throw new Error('missing resume nonce');
-  return nonce;
-}
-
 function resumeArgsFromCard(card: unknown): string[] {
   const out: string[] = [];
   const visit = (value: unknown): void => {
@@ -482,20 +434,4 @@ function resumeArgsFromCard(card: unknown): string[] {
   };
   visit(card);
   return out;
-}
-
-function codexThread(
-  threadId: string,
-  preview: string,
-  updatedAtMs: number,
-): CodexThreadHistoryEntry {
-  return {
-    threadId,
-    sessionId: threadId,
-    preview,
-    cwd: '/tmp/workspace',
-    createdAtMs: updatedAtMs - 1000,
-    updatedAtMs,
-    source: 'exec',
-  };
 }

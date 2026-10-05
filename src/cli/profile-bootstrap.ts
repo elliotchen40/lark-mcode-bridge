@@ -13,7 +13,7 @@ export interface BootstrapProfileInput {
   secrets?: AppConfig['secrets'];
   workspace?: string;
   defaultWorkspace?: string;
-  codexBinaryPath?: string;
+  mcodeBinaryPath?: string;
   profileDir?: string;
 }
 
@@ -25,25 +25,21 @@ export async function createBootstrapProfileConfig(
     : input.defaultWorkspace
       ? await ensureManagedDefaultWorkspace(input.defaultWorkspace)
       : undefined;
-  const codex =
-    input.agentKind === 'codex'
-      ? await createBootstrapCodexConfig(input.codexBinaryPath)
-      : undefined;
+  // Pin the resolved `mcode` path at bootstrap so a later run cannot silently
+  // pick up a different binary than the one this profile was created against.
+  const mcode = await createBootstrapMcodeConfig(input.mcodeBinaryPath);
   const profile = createDefaultProfileConfig({
     agentKind: input.agentKind,
     accounts: input.accounts,
     preferences: input.preferences,
     secrets: input.secrets,
-    ...(codex ? { codex } : {}),
+    mcode,
   });
   if (workspace) {
     profile.workspaces = {
       ...profile.workspaces,
       default: workspace,
     };
-  }
-  if (input.profileDir && profile.codex?.inheritCodexHome === false) {
-    await mkdir(join(input.profileDir, 'codex-home'), { recursive: true });
   }
   return profile;
 }
@@ -59,17 +55,17 @@ async function ensureManagedDefaultWorkspace(path: string): Promise<string> {
   return realpath(path);
 }
 
-export async function createBootstrapCodexConfig(binaryPath: string | undefined) {
-  const command = binaryPath ?? process.env.LARK_CHANNEL_CODEX_BIN ?? 'codex';
+export async function createBootstrapMcodeConfig(binaryPath: string | undefined) {
+  const command = binaryPath ?? process.env.LARK_CHANNEL_MCODE_BIN ?? 'mcode';
   let resolvedBinary: string;
   try {
     resolvedBinary = await resolveExecutablePath(command);
   } catch (err) {
     const errno = (err as NodeJS.ErrnoException).code;
     throw new AgentPreflightError({
-      code: codexBootstrapBinaryErrorCode(errno),
-      agentId: 'codex',
-      agentName: 'Codex CLI',
+      code: mcodeBootstrapBinaryErrorCode(errno),
+      agentId: 'mcode',
+      agentName: 'MiniMax Code',
       command,
       binaryPath: command,
       errno,
@@ -78,7 +74,7 @@ export async function createBootstrapCodexConfig(binaryPath: string | undefined)
   return { binaryPath: resolvedBinary };
 }
 
-function codexBootstrapBinaryErrorCode(errno: string | undefined) {
+function mcodeBootstrapBinaryErrorCode(errno: string | undefined) {
   if (errno === 'EACCES' || errno === 'EPERM') return 'agent-binary-not-executable';
   if (errno === 'ELOOP' || errno === 'ENOTDIR' || errno === 'EINVAL') {
     return 'agent-binary-resolve-failed';

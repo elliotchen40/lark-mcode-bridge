@@ -45,7 +45,7 @@ vi.mock('../../../src/config/paths', () => ({
   paths: {
     rootDir: '/tmp/lark-channel-home',
     configFile: '/tmp/lark-channel-home/config.json',
-    profile: 'claude',
+    profile: 'mcode',
   },
 }));
 
@@ -84,32 +84,32 @@ describe('profile-aware service commands', () => {
     mocks.materializeEnvSecretForService.mockResolvedValue(false);
     mocks.stopProcessEntry.mockResolvedValue('terminated');
     mocks.resolveProfileRuntime.mockResolvedValue({
-      profile: 'codex-dev',
+      profile: 'mcode-dev',
       configPath: '/tmp/lark-channel-home/config.json',
       appPaths: {
-        profile: 'codex-dev',
+        profile: 'mcode-dev',
         rootDir: '/tmp/lark-channel-home',
-        larkCliConfigDir: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli',
-        larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli-source/config.json',
-        profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/codex-dev.lock',
+        larkCliConfigDir: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli',
+        larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli-source/config.json',
+        profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/mcode-dev.lock',
         appLockFile: (appId: string) => `/tmp/lark-channel-home/registry/locks/app/${appId}.lock`,
       },
       cfg: {
         accounts: {
           app: {
-            id: 'cli_codex',
+            id: 'cli_mcode',
             secret: '${APP_SECRET}',
             tenant: 'feishu',
           },
         },
-        agentKind: 'codex',
+        agentKind: 'mcode',
       },
     });
     mocks.checkRuntimeLock.mockResolvedValue({ locked: false });
-    mocks.readActiveProfile.mockResolvedValue('codex-dev');
+    mocks.readActiveProfile.mockResolvedValue('mcode-dev');
     mocks.loadRootConfig.mockResolvedValue({
       profiles: {
-        'codex-dev': {},
+        'mcode-dev': {},
       },
     });
   });
@@ -125,19 +125,19 @@ describe('profile-aware service commands', () => {
         processEntry({
           id: 'p1',
           pid: 12345,
-          appId: 'cli_codex',
-          profileName: 'codex-dev',
-          agentKind: 'codex',
-          botName: 'Codex Bot',
+          appId: 'cli_mcode',
+          profileName: 'mcode-dev',
+          agentKind: 'mcode',
+          botName: 'MiniMax Bot',
         }),
       ]);
 
-    await runServiceStart({ profile: 'codex-dev', skipCheckLarkCli: true });
+    await runServiceStart({ profile: 'mcode-dev', skipCheckLarkCli: true });
 
     // Classic per-profile service pins `run --profile <profile>`.
-    expect(mocks.getServiceAdapter).toHaveBeenCalledWith('codex-dev', ['run', '--profile', 'codex-dev']);
+    expect(mocks.getServiceAdapter).toHaveBeenCalledWith('mcode-dev', ['run', '--profile', 'mcode-dev']);
     expect(mocks.resolveProfileRuntime).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      profile: 'codex-dev',
+      profile: 'mcode-dev',
       agent: undefined,
       workspace: undefined,
       appId: undefined,
@@ -147,40 +147,40 @@ describe('profile-aware service commands', () => {
       handleActiveBridgeMigrationConflict: expect.any(Function),
     }));
     expect(mocks.resolveProfileRuntime).toHaveBeenNthCalledWith(2, {
-      profile: 'codex-dev',
+      profile: 'mcode-dev',
       allowBootstrap: false,
     });
-    expect(mocks.materializeEnvSecretForService).toHaveBeenCalledWith({ profile: 'codex-dev' });
+    expect(mocks.materializeEnvSecretForService).toHaveBeenCalledWith({ profile: 'mcode-dev' });
     expect(mocks.preFlightChecks).toHaveBeenCalledWith({
       skipCheckLarkCli: true,
       bridgeConfig: expect.objectContaining({
         accounts: {
           app: {
-            id: 'cli_codex',
+            id: 'cli_mcode',
             secret: '${APP_SECRET}',
             tenant: 'feishu',
           },
         },
-        agentKind: 'codex',
+        agentKind: 'mcode',
       }),
       appPaths: expect.objectContaining({
-        profile: 'codex-dev',
+        profile: 'mcode-dev',
         rootDir: '/tmp/lark-channel-home',
-        larkCliConfigDir: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli',
-        larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli-source/config.json',
+        larkCliConfigDir: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli',
+        larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli-source/config.json',
       }),
       larkChannel: {
-        profile: 'codex-dev',
+        profile: 'mcode-dev',
         rootDir: '/tmp/lark-channel-home',
         configPath: '/tmp/lark-channel-home/config.json',
-        larkCliConfigDir: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli',
-        larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli-source/config.json',
+        larkCliConfigDir: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli',
+        larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli-source/config.json',
       },
     });
     expect(mocks.adapter.install).toHaveBeenCalled();
     expect(mocks.adapter.start).toHaveBeenCalled();
     expect(lines).toContain(
-      '✓ 已启动  bot: Codex Bot (cli_codex)  agent: Codex CLI (codex)  进程: p1',
+      '✓ 已启动  bot: MiniMax Bot (cli_mcode)  agent: MiniMax Code (mcode)  进程: p1',
     );
   });
 
@@ -189,16 +189,16 @@ describe('profile-aware service commands', () => {
     const materializedCfg = {
       accounts: {
         app: {
-          id: 'cli_codex',
+          id: 'cli_mcode',
           secret: {
             source: 'exec',
             provider: 'bridge',
-            id: 'app-cli_codex',
+            id: 'app-cli_mcode',
           },
           tenant: 'feishu',
         },
       },
-      agentKind: 'codex',
+      agentKind: 'mcode',
       secrets: {
         providers: {
           bridge: {
@@ -212,49 +212,49 @@ describe('profile-aware service commands', () => {
     mocks.materializeEnvSecretForService.mockResolvedValue(true);
     mocks.resolveProfileRuntime
       .mockResolvedValueOnce({
-        profile: 'codex-dev',
+        profile: 'mcode-dev',
         configPath: '/tmp/lark-channel-home/config.json',
         appPaths: {
-          profile: 'codex-dev',
+          profile: 'mcode-dev',
           rootDir: '/tmp/lark-channel-home',
-          larkCliConfigDir: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli',
-          larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli-source/config.json',
-          profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/codex-dev.lock',
+          larkCliConfigDir: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli',
+          larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli-source/config.json',
+          profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/mcode-dev.lock',
           appLockFile: (appId: string) => `/tmp/lark-channel-home/registry/locks/app/${appId}.lock`,
         },
         cfg: {
           accounts: {
             app: {
-              id: 'cli_codex',
+              id: 'cli_mcode',
               secret: '${APP_SECRET}',
               tenant: 'feishu',
             },
           },
-          agentKind: 'codex',
+          agentKind: 'mcode',
         },
       })
       .mockResolvedValueOnce({
-        profile: 'codex-dev',
+        profile: 'mcode-dev',
         configPath: '/tmp/lark-channel-home/config.json',
         appPaths: {
-          profile: 'codex-dev',
+          profile: 'mcode-dev',
           rootDir: '/tmp/lark-channel-home',
-          larkCliConfigDir: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli',
-          larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli-source/config.json',
-          profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/codex-dev.lock',
+          larkCliConfigDir: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli',
+          larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli-source/config.json',
+          profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/mcode-dev.lock',
           appLockFile: (appId: string) => `/tmp/lark-channel-home/registry/locks/app/${appId}.lock`,
         },
         cfg: materializedCfg,
       })
       .mockResolvedValueOnce({
-        profile: 'codex-dev',
+        profile: 'mcode-dev',
         configPath: '/tmp/lark-channel-home/config.json',
         appPaths: {
-          profile: 'codex-dev',
+          profile: 'mcode-dev',
           rootDir: '/tmp/lark-channel-home',
-          larkCliConfigDir: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli',
-          larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/codex-dev/lark-cli-source/config.json',
-          profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/codex-dev.lock',
+          larkCliConfigDir: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli',
+          larkCliSourceConfigFile: '/tmp/lark-channel-home/profiles/mcode-dev/lark-cli-source/config.json',
+          profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/mcode-dev.lock',
           appLockFile: (appId: string) => `/tmp/lark-channel-home/registry/locks/app/${appId}.lock`,
         },
         cfg: materializedCfg,
@@ -265,17 +265,17 @@ describe('profile-aware service commands', () => {
         processEntry({
           id: 'p1',
           pid: 12345,
-          appId: 'cli_codex',
-          profileName: 'codex-dev',
-          agentKind: 'codex',
-          botName: 'Codex Bot',
+          appId: 'cli_mcode',
+          profileName: 'mcode-dev',
+          agentKind: 'mcode',
+          botName: 'MiniMax Bot',
         }),
       ]);
 
-    await runServiceStart({ profile: 'codex-dev', skipCheckLarkCli: false });
+    await runServiceStart({ profile: 'mcode-dev', skipCheckLarkCli: false });
 
     expect(mocks.resolveProfileRuntime).toHaveBeenNthCalledWith(2, {
-      profile: 'codex-dev',
+      profile: 'mcode-dev',
       allowBootstrap: false,
     });
     expect(mocks.preFlightChecks).toHaveBeenCalledWith(expect.objectContaining({
@@ -285,7 +285,7 @@ describe('profile-aware service commands', () => {
       bridgeConfig: expect.objectContaining({
         accounts: {
           app: {
-            id: 'cli_codex',
+            id: 'cli_mcode',
             secret: '${APP_SECRET}',
             tenant: 'feishu',
           },
@@ -306,9 +306,9 @@ describe('profile-aware service commands', () => {
       locked: true,
       meta: {
         kind: 'profile',
-        target: '/tmp/lark-channel-home/registry/locks/profile/codex-dev.lock',
-        profile: 'codex-dev',
-        agentKind: 'codex',
+        target: '/tmp/lark-channel-home/registry/locks/profile/mcode-dev.lock',
+        profile: 'mcode-dev',
+        agentKind: 'mcode',
         pid: 2468,
         startedAt: '2026-05-26T10:50:33.082Z',
       },
@@ -319,14 +319,14 @@ describe('profile-aware service commands', () => {
         processEntry({
           id: 'p1',
           pid: 12345,
-          appId: 'cli_codex',
-          profileName: 'codex-dev',
-          agentKind: 'codex',
-          botName: 'Codex Bot',
+          appId: 'cli_mcode',
+          profileName: 'mcode-dev',
+          agentKind: 'mcode',
+          botName: 'MiniMax Bot',
         }),
       ]);
 
-    await expect(runServiceStart({ profile: 'codex-dev', skipCheckLarkCli: true })).rejects.toThrow(
+    await expect(runServiceStart({ profile: 'mcode-dev', skipCheckLarkCli: true })).rejects.toThrow(
       'exit:1',
     );
 
@@ -345,9 +345,9 @@ describe('profile-aware service commands', () => {
     });
     const holder = {
       kind: 'profile' as const,
-      target: '/tmp/lark-channel-home/registry/locks/profile/codex-dev.lock',
-      profile: 'codex-dev',
-      agentKind: 'codex' as const,
+      target: '/tmp/lark-channel-home/registry/locks/profile/mcode-dev.lock',
+      profile: 'mcode-dev',
+      agentKind: 'mcode' as const,
       pid: 2468,
       startedAt: '2026-05-26T10:50:33.082Z',
     };
@@ -361,15 +361,15 @@ describe('profile-aware service commands', () => {
         processEntry({
           id: 'p1',
           pid: 12345,
-          appId: 'cli_codex',
-          profileName: 'codex-dev',
-          agentKind: 'codex',
-          botName: 'Codex Bot',
+          appId: 'cli_mcode',
+          profileName: 'mcode-dev',
+          agentKind: 'mcode',
+          botName: 'MiniMax Bot',
         }),
       ]);
 
     await runServiceStart({
-      profile: 'codex-dev',
+      profile: 'mcode-dev',
       skipCheckLarkCli: true,
       confirmStopRuntimeLockProcess: async () => true,
     });
@@ -394,23 +394,23 @@ describe('profile-aware service commands', () => {
         locked: true,
         meta: {
           kind: 'app',
-          target: '/tmp/lark-channel-home/registry/locks/app/cli_codex.lock',
-          profile: 'codex-dev',
-          agentKind: 'codex',
-          appId: 'cli_codex',
+          target: '/tmp/lark-channel-home/registry/locks/app/cli_mcode.lock',
+          profile: 'mcode-dev',
+          agentKind: 'mcode',
+          appId: 'cli_mcode',
           pid: 2468,
           startedAt: '2026-05-26T10:50:33.085Z',
         },
       });
 
-    await expect(runServiceStart({ profile: 'codex-dev', skipCheckLarkCli: true })).rejects.toThrow(
+    await expect(runServiceStart({ profile: 'mcode-dev', skipCheckLarkCli: true })).rejects.toThrow(
       'exit:1',
     );
 
     expect(mocks.adapter.install).not.toHaveBeenCalled();
     expect(mocks.adapter.start).not.toHaveBeenCalled();
     expect(errors.join('\n')).toContain('当前 app 已有 bridge 进程占用');
-    expect(errors.join('\n')).toContain('app=cli_codex');
+    expect(errors.join('\n')).toContain('app=cli_mcode');
 
     exit.mockRestore();
   });
@@ -418,20 +418,20 @@ describe('profile-aware service commands', () => {
   it('lets start perform first-run bootstrap without requiring a profile concept', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     mocks.resolveProfileRuntime.mockResolvedValue({
-      profile: 'claude',
+      profile: 'mcode',
       appPaths: {
-        profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/claude.lock',
+        profileLockFile: '/tmp/lark-channel-home/registry/locks/profile/mcode.lock',
         appLockFile: (appId: string) => `/tmp/lark-channel-home/registry/locks/app/${appId}.lock`,
       },
       cfg: {
         accounts: {
           app: {
-            id: 'cli_claude',
+            id: 'cli_mcode',
             secret: '${APP_SECRET}',
             tenant: 'feishu',
           },
         },
-        agentKind: 'claude',
+        agentKind: 'mcode',
       },
     });
     mocks.readAndPrune
@@ -440,17 +440,17 @@ describe('profile-aware service commands', () => {
         processEntry({
           id: 'p2',
           pid: 12346,
-          appId: 'cli_claude',
-          profileName: 'claude',
-          agentKind: 'claude',
-          botName: 'Claude Bot',
+          appId: 'cli_mcode',
+          profileName: 'mcode',
+          agentKind: 'mcode',
+          botName: 'MiniMax Bot',
         }),
       ]);
 
     await runServiceStart({
-      agent: 'claude',
+      agent: 'mcode',
       workspace: '/repo',
-      appId: 'cli_claude',
+      appId: 'cli_mcode',
       appSecret: 'manual-secret',
       tenant: 'feishu',
       skipCheckLarkCli: true,
@@ -458,20 +458,20 @@ describe('profile-aware service commands', () => {
 
     expect(mocks.resolveProfileRuntime).toHaveBeenNthCalledWith(1, expect.objectContaining({
       profile: undefined,
-      agent: 'claude',
+      agent: 'mcode',
       workspace: '/repo',
-      appId: 'cli_claude',
+      appId: 'cli_mcode',
       appSecret: 'manual-secret',
       tenant: 'feishu',
       allowBootstrap: true,
       handleActiveBridgeMigrationConflict: expect.any(Function),
     }));
     expect(mocks.resolveProfileRuntime).toHaveBeenNthCalledWith(2, {
-      profile: 'claude',
+      profile: 'mcode',
       allowBootstrap: false,
     });
-    expect(mocks.getServiceAdapter).toHaveBeenCalledWith('claude', ['run', '--profile', 'claude']);
-    expect(mocks.materializeEnvSecretForService).toHaveBeenCalledWith({ profile: 'claude' });
+    expect(mocks.getServiceAdapter).toHaveBeenCalledWith('mcode', ['run', '--profile', 'mcode']);
+    expect(mocks.materializeEnvSecretForService).toHaveBeenCalledWith({ profile: 'mcode' });
     expect(mocks.adapter.install).toHaveBeenCalled();
     expect(mocks.adapter.start).toHaveBeenCalled();
   });
@@ -483,7 +483,7 @@ describe('profile-aware service commands', () => {
     await runServiceStatus();
     // Lifecycle commands (status/stop/restart/unregister) don't install, so
     // they pass no runArgs.
-    expect(mocks.getServiceAdapter).toHaveBeenCalledWith('codex-dev', undefined);
+    expect(mocks.getServiceAdapter).toHaveBeenCalledWith('mcode-dev', undefined);
 
     mocks.readActiveProfile.mockResolvedValue(undefined);
     mocks.loadRootConfig.mockResolvedValue(undefined);
@@ -496,7 +496,7 @@ describe('profile-aware service commands', () => {
       lines.push(line);
     });
     // Machine installed via `start --web-ui`: only the supervisor service
-    // exists on disk, and it is the process hosting profile codex-dev.
+    // exists on disk, and it is the process hosting profile mcode-dev.
     const supervisor = { ...mocks.adapter, isRunning: vi.fn(() => true) } as ServiceAdapter;
     mocks.getServiceAdapter.mockImplementation((serviceId: string) =>
       serviceId === 'supervisor'
@@ -522,7 +522,7 @@ describe('profile-aware service commands', () => {
 
     // fileExists=true, isRunning=false — nothing to kill, but the login-time
     // autostart is still armed and would bring the daemon back by itself.
-    await runServiceStop({ profile: 'codex-dev' });
+    await runServiceStop({ profile: 'mcode-dev' });
 
     expect(mocks.adapter.disableAutostart).toHaveBeenCalled();
     expect(mocks.adapter.stopAndDisableAutostart).not.toHaveBeenCalled();
@@ -540,7 +540,7 @@ describe('profile-aware service commands', () => {
       serviceId === 'supervisor' ? supervisor : classic,
     );
 
-    await runServiceStop({ profile: 'codex-dev' });
+    await runServiceStop({ profile: 'mcode-dev' });
 
     expect(supervisor.stopAndDisableAutostart).not.toHaveBeenCalled();
     expect(classic.stopAndDisableAutostart).not.toHaveBeenCalled();
@@ -554,14 +554,14 @@ describe('profile-aware service commands', () => {
     });
     mocks.loadRootConfig.mockResolvedValue({
       profiles: {
-        claude: {},
+        work: {},
       },
     });
 
-    await runServiceStatus({ profile: 'codex-dev' });
-    await runServiceUnregister({ profile: 'codex-dev' });
+    await runServiceStatus({ profile: 'mcode-dev' });
+    await runServiceUnregister({ profile: 'mcode-dev' });
 
-    expect(mocks.getServiceAdapter).toHaveBeenCalledWith('codex-dev', undefined);
+    expect(mocks.getServiceAdapter).toHaveBeenCalledWith('mcode-dev', undefined);
     expect(mocks.adapter.deleteFile).toHaveBeenCalled();
     expect(lines).toContain('✓ 已清除后台运行注册');
     expect(lines).toContain('  (配置 / 日志 / 会话保留在 /tmp/lark-channel-home)');
@@ -574,8 +574,8 @@ function processEntry(overrides: Partial<ProcessEntry>): ProcessEntry {
     pid: process.pid,
     appId: 'cli_test',
     tenant: 'feishu',
-    profileName: 'claude',
-    agentKind: 'claude',
+    profileName: 'mcode',
+    agentKind: 'mcode',
     configPath: '/tmp/config.json',
     startedAt: new Date().toISOString(),
     version: '0.1.32',

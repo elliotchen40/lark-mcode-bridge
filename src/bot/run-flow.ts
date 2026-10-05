@@ -99,8 +99,6 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
     capability: input.capability,
     profileConfig: input.profileConfig,
     now: input.now,
-    codexHome: input.profileConfig.codex?.codexHome,
-    inheritCodexHome: input.profileConfig.codex?.inheritCodexHome,
   });
   if (!policy.ok) {
     return {
@@ -112,7 +110,6 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
 
   let resumeFrom: string | undefined;
   let sessionId: string | undefined;
-  let threadId: string | undefined;
   if (input.sessionCatalog) {
     const catalogEntry = input.sessionCatalog.activeFor({
       scopeId: input.scopeId,
@@ -120,15 +117,10 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
       cwdRealpath: workspace.cwdRealpath,
       policyFingerprint: policy.policyFingerprint,
     });
-    if (catalogEntry?.agentId === 'claude') {
-      sessionId = catalogEntry.sessionId;
-      resumeFrom = sessionId;
-    } else if (catalogEntry?.agentId === 'codex') {
-      threadId = catalogEntry.threadId;
-      resumeFrom = threadId;
-    }
+    sessionId = catalogEntry?.sessionId;
+    resumeFrom = sessionId;
   }
-  if (!resumeFrom && input.capability.agentId === 'claude') {
+  if (!resumeFrom) {
     resumeFrom = input.sessions.resumeFor(input.scopeId, workspace.cwdRealpath);
     sessionId = resumeFrom;
     const stale = input.sessions.getRaw(input.scopeId);
@@ -143,18 +135,14 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
       scopeId: input.scopeId,
       policy,
       sessionId,
-      threadId,
-      model: resolveModelArg(
-        input.profileConfig.agentKind,
-        input.profileConfig.preferences.model,
-      ),
-      images:
-        input.capability.agentId === 'codex'
-          ? policy.attachments
-              .filter((attachment) => attachment.kind === 'image' && attachment.decision === 'accepted')
-              .map((attachment) => attachment.path)
-              .filter((path): path is string => Boolean(path))
-          : undefined,
+      model: resolveModelArg(input.profileConfig.preferences.model),
+      // mcode takes attachments through `--file`, which handles images and
+      // documents alike — so every accepted attachment is forwarded, not just
+      // images.
+      images: policy.attachments
+        .filter((attachment) => attachment.decision === 'accepted')
+        .map((attachment) => attachment.path)
+        .filter((path): path is string => Boolean(path)),
       stopGraceMs: input.stopGraceMs,
       observability: input.observability,
     });
@@ -188,25 +176,16 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
 
 export function recordRunSessionEvent(input: RecordRunSessionEventInput): void {
   if (input.event.type !== 'system') return;
-  if (input.capability.agentId === 'claude' && input.event.sessionId) {
-    const cwdRealpath = input.event.cwd ?? input.policy.cwdRealpath;
-    input.sessions.set(input.scopeId, input.event.sessionId, cwdRealpath);
-    input.sessionCatalog?.upsertActive({
-      scopeId: input.scopeId,
-      agentId: 'claude',
-      cwdRealpath,
-      policyFingerprint: input.policy.policyFingerprint,
-      sessionId: input.event.sessionId,
-    });
-    return;
-  }
-  if (input.capability.agentId === 'codex' && input.event.threadId) {
-    input.sessionCatalog?.upsertActive({
-      scopeId: input.scopeId,
-      agentId: 'codex',
-      cwdRealpath: input.policy.cwdRealpath,
-      policyFingerprint: input.policy.policyFingerprint,
-      threadId: input.event.threadId,
-    });
-  }
+  if (!input.event.sessionId) return;
+  // mcode reports the session id on its `system` event; persisting it here is
+  // what lets the next message in the same scope continue the conversation.
+  const cwdRealpath = input.event.cwd ?? input.policy.cwdRealpath;
+  input.sessions.set(input.scopeId, input.event.sessionId, cwdRealpath);
+  input.sessionCatalog?.upsertActive({
+    scopeId: input.scopeId,
+    agentId: 'mcode',
+    cwdRealpath,
+    policyFingerprint: input.policy.policyFingerprint,
+    sessionId: input.event.sessionId,
+  });
 }

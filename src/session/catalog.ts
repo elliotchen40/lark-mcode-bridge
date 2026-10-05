@@ -19,15 +19,17 @@ export interface SessionCatalogEntry extends SessionCatalogIdentity {
   key: string;
   status: SessionCatalogStatus;
   updatedAt: number;
+  /**
+   * mcode session id (`mvs_...`). Required for the entry to be usable.
+   */
   sessionId?: string;
-  threadId?: string;
   lastSummary?: string;
 }
 
 export interface UpsertSessionCatalogInput extends SessionCatalogIdentity {
   now?: number;
+  /** Required: mcode sessions are addressed by id, not by Codex-style thread. */
   sessionId?: string;
-  threadId?: string;
   lastSummary?: string;
 }
 
@@ -111,7 +113,6 @@ export class SessionCatalog {
       status: 'active',
       updatedAt: input.now ?? Date.now(),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-      ...(input.threadId ? { threadId: input.threadId } : {}),
       ...(input.lastSummary ? { lastSummary: input.lastSummary } : {}),
     };
     this.data.set(key, entry);
@@ -214,7 +215,7 @@ function normalizeEntry(input: unknown): SessionCatalogEntry | undefined {
   if (
     typeof raw.key !== 'string' ||
     typeof raw.scopeId !== 'string' ||
-    (raw.agentId !== 'claude' && raw.agentId !== 'codex') ||
+    (raw.agentId !== 'mcode') ||
     typeof raw.cwdRealpath !== 'string' ||
     typeof raw.policyFingerprint !== 'string' ||
     (raw.status !== 'active' && raw.status !== 'archived') ||
@@ -231,7 +232,6 @@ function normalizeEntry(input: unknown): SessionCatalogEntry | undefined {
     status: raw.status,
     updatedAt: raw.updatedAt,
     ...(typeof raw.sessionId === 'string' ? { sessionId: raw.sessionId } : {}),
-    ...(typeof raw.threadId === 'string' ? { threadId: raw.threadId } : {}),
     ...(typeof raw.lastSummary === 'string' ? { lastSummary: raw.lastSummary } : {}),
   };
 }
@@ -246,19 +246,21 @@ function matchesIdentity(entry: SessionCatalogEntry, input: SessionCatalogIdenti
   );
 }
 
+/**
+ * mcode sessions are addressed by id (`mcode exec --session`), so an entry is
+ * usable only when it carries a `sessionId`.
+ *
+ * `threadId` was a Codex concept. Entries written by the pre-mcode build are
+ * recognised and dropped rather than migrated: a Codex entry has no
+ * `sessionId`, so it can never satisfy this check, and continuing a Codex
+ * thread with mcode is not meaningful.
+ */
 function isValidAgentEntry(entry: SessionCatalogEntry): boolean {
-  if (entry.agentId === 'claude') return Boolean(entry.sessionId) && !entry.threadId;
-  return Boolean(entry.threadId) && !entry.sessionId;
+  return Boolean(entry.sessionId);
 }
 
 function assertAgentIdentity(input: UpsertSessionCatalogInput): void {
-  if (input.agentId === 'claude') {
-    if (!input.sessionId || input.threadId) {
-      throw new Error('Claude catalog entries require sessionId and must not include threadId');
-    }
-    return;
-  }
-  if (!input.threadId || input.sessionId) {
-    throw new Error('Codex catalog entries require threadId and must not include sessionId');
+  if (!input.sessionId) {
+    throw new Error('mcode catalog entries require sessionId');
   }
 }

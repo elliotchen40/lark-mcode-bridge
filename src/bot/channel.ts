@@ -5,7 +5,7 @@ import type {
 } from '@larksuite/channel';
 import { createLarkChannel } from '@larksuite/channel';
 import { dirname, join } from 'node:path';
-import { claudeCapability, codexCapability } from '../agent/capability';
+import { mcodeCapability } from '../agent/capability';
 import { modelLabel, normalizeModelSelection, resolveModelArg } from '../agent/models';
 import {
   buildAgentPrompt,
@@ -82,7 +82,7 @@ const REACTION_CLEANUP_GRACE_MS = 1000;
 const BRIDGE_AGENT_INSTRUCTIONS = [
   '你在 bridge 进程中运行，普通 lark-cli 会继承 LARK_CHANNEL=1 并进入 bridge-bound 模式。',
   '不要 unset LARK_CHANNEL / LARK_CHANNEL_HOME / LARK_CHANNEL_PROFILE / LARKSUITE_CLI_CONFIG_DIR，也不要用 env -u LARK_CHANNEL 绕回本机普通配置。',
-  'Codex bridge 默认使用 danger-full-access 对齐 Claude bridge 的 bypassPermissions 行为，因此 lark-cli 应能像用户本机终端一样访问 keychain。',
+  'bridge 默认以 mcode 的 --permission full 运行，lark-cli 应能像用户本机终端一样访问 keychain。',
   '如果提示 lark-channel context detected but not bound，停止当前操作并请用户重启 bridge 或运行 bridge doctor/preflight；不要改用普通 profile，不要自行 bind，也不要直接读取 config.json 里的账号或密钥。',
 ];
 
@@ -900,16 +900,15 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   // for this scope (never on the first run) and the selection actually
   // changed. `requestedModel` (the `--model` value, or undefined for default)
   // is reused below to log requested-vs-actual against the init event.
-  const agentKind = controls.profileConfig.agentKind;
   const modelPref = controls.profileConfig.preferences.model;
-  const modelSelection = normalizeModelSelection(agentKind, modelPref);
-  const requestedModel = resolveModelArg(agentKind, modelPref);
+  const modelSelection = normalizeModelSelection(modelPref);
+  const requestedModel = resolveModelArg(modelPref);
   const prevModel = lastRunModelByScope.get(scope);
   const modelSwitched = prevModel !== undefined && prevModel !== modelSelection;
   lastRunModelByScope.set(scope, modelSelection);
   const extraInstructions = modelSwitched
     ? [
-        `用户刚把本会话使用的模型切换为「${modelLabel(agentKind, modelPref)}」。` +
+        `用户刚把本会话使用的模型切换为「${modelLabel(modelPref)}」。` +
           '之前的对话里可能提到别的模型,请以当前模型为准;若被问到你用的是什么模型,据此回答。',
       ]
     : undefined;
@@ -955,10 +954,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     actorId: firstMsg.senderId,
     ...(threadId ? { threadId } : {}),
   };
-  const capability =
-    controls.profileConfig.agentKind === 'codex'
-      ? codexCapability(controls.profileConfig)
-      : claudeCapability(controls.profileConfig);
+  const capability = mcodeCapability(controls.profileConfig);
   const flow = await startRunFlow({
     scopeId: scope,
     scope: scopeContext,
@@ -1012,18 +1008,18 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     if (evt.type === 'system' && evt.sessionId) {
       log.info('session', 'set', { sessionId: evt.sessionId });
     }
-    // Ground truth for "which model is actually running": claude reports the
+    // Ground truth for "which model is actually running": mcode reports the
     // model it loaded in its init event. Logging requested-vs-actual reveals
-    // whether the --model pin took effect or claude silently fell back (e.g.
-    // an id this claude build/account doesn't recognize).
+    // whether the `--model` pin took effect or mcode silently fell back (e.g.
+    // an id this account does not recognize).
     if (evt.type === 'system' && evt.model) {
       log.info('session', 'model', {
         requested: requestedModel ?? 'default',
         actual: evt.model,
       });
     }
-    if (evt.type === 'system' && evt.threadId) {
-      log.info('session', 'set-thread', { threadId: evt.threadId });
+    if (evt.type === 'system' && evt.sessionId) {
+      log.info('session', 'set-session', { sessionId: evt.sessionId });
     }
   };
 
@@ -1169,7 +1165,6 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           renderDone,
           producerStarted: () => producerStarted,
           fallback: async (state) => {
-            if (controls.profileConfig.agentKind === 'codex') return;
             if (renderText(filterForPrefs(state)).trim() === '') return;
             await channel.send(
               chatId,
@@ -1179,21 +1174,9 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           },
         });
       } catch (err) {
-        if (controls.profileConfig.agentKind !== 'codex') throw err;
-        log.fail('stream', err, { mode: replyMode, step: 'progress-stream' });
+        throw err;
       }
       await recallIfEmptyStreamedReply(channel, progress, filterForPrefs(latestState), scope);
-      if (controls.profileConfig.agentKind === 'codex') {
-        await sendFinalReply({
-          channel,
-          chatId,
-          scope,
-          state: finalReplyState(progress, filterForPrefs(latestState)),
-          replyMode,
-          sendOpts,
-          cardRenderOptions,
-        });
-      }
     } else if (replyMode === 'markdown') {
       let latestState: RunState = initialState;
       let producerStarted = false;
@@ -1234,7 +1217,6 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           renderDone,
           producerStarted: () => producerStarted,
           fallback: async (state) => {
-            if (controls.profileConfig.agentKind === 'codex') return;
             const body = renderText(filterForPrefs(state));
             if (body.trim()) {
               await channel.send(chatId, { markdown: body }, sendOpts);
@@ -1242,21 +1224,9 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           },
         });
       } catch (err) {
-        if (controls.profileConfig.agentKind !== 'codex') throw err;
-        log.fail('stream', err, { mode: replyMode, step: 'progress-stream' });
+        throw err;
       }
       await recallIfEmptyStreamedReply(channel, progress, filterForPrefs(latestState), scope);
-      if (controls.profileConfig.agentKind === 'codex') {
-        await sendFinalReply({
-          channel,
-          chatId,
-          scope,
-          state: finalReplyState(progress, filterForPrefs(latestState)),
-          replyMode,
-          sendOpts,
-          cardRenderOptions,
-        });
-      }
     } else {
       // text mode: drain the agent stream without sending anything during
       // the run, then post the final rendered text once as a plain markdown
@@ -1273,10 +1243,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         channel,
         chatId,
         scope,
-        state:
-          controls.profileConfig.agentKind === 'codex'
-            ? finalAnswerOnlyState(filterForPrefs(finalState))
-            : filterForPrefs(finalState),
+        state: filterForPrefs(finalState),
         replyMode,
         sendOpts,
         cardRenderOptions,
@@ -1370,13 +1337,10 @@ function shouldOpenProgressStream(state: RunState): boolean {
  * What Codex's dedicated final reply may carry, given what the progress stream
  * already put on screen.
  *
- * `finalAnswerOnlyState` falls back to the run's text blocks when Codex held
+ * `finalAnswerOnlyState` falls back to the run's text blocks when the agent held
  * nothing back for the end — correct where nothing was streamed (CoT, text
  * mode, a stream we gave up on), but those blocks are already visible once a
  * stream rendered them, and repeating them posts the same words a second time.
- * Codex leaves the answer in `blocks` more often than it looks: any abnormal
- * turn end (`turn.failed`, or the process exiting before `turn.completed`)
- * flushes the pending message as text instead of `final_text`.
  *
  * Terminal notices are dropped for the same reason — the stream rendered them.
  */
@@ -1558,13 +1522,13 @@ async function processAgentStream(
   const runStart = Date.now();
   let state: RunState = initialState;
 
-  // Idle watchdog: claude going silent for `idleTimeoutMs` is treated as
+  // Idle watchdog: the agent going silent for `idleTimeoutMs` is treated as
   // "presumed hung", we stop() and surface a timeout marker on the card.
   //
-  // BUT — claude can legitimately be silent for a long time when it's
+  // BUT — the agent can legitimately be silent for a long time when it's
   // waiting on a long-running tool call (e.g. `lark-cli` printing an
   // OAuth URL and blocking until the user clicks authorize). In that
-  // case there's no event stream activity from claude itself, only the
+  // case there's no event stream activity from the agent itself, only the
   // tool subprocess running. We track which tool_use ids haven't matched
   // a tool_result yet, and pause the watchdog whenever the set is
   // non-empty.
@@ -1636,7 +1600,7 @@ async function processAgentStream(
         log.info('card', 'transition', { footer: state.footer, terminal: state.terminal });
       }
       await flush(state);
-      // Stop iterating as soon as we have a terminal state. Some claude
+      // Stop iterating as soon as we have a terminal state. Some agents
       // versions don't close stdout immediately after the result event, which
       // would leave the for-await waiting forever otherwise.
       if (state.terminal !== 'running') break;
@@ -1701,8 +1665,8 @@ async function awaitRenderAwareStream(input: {
   }
 
   // Nothing durable ever showed up, so no progress message was opened at all
-  // (the common Codex final-only round). Whatever the run ended with still has
-  // to reach the user as a standalone reply.
+  // (e.g. a turn that produced only a final answer). Whatever the run ended
+  // with still has to reach the user as a standalone reply.
   if (!input.progress.opened()) {
     log.info('outbound', 'progress-stream-skipped', { mode: input.mode });
     await runFallbackReply(input.mode, first.state, input.fallback);

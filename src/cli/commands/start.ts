@@ -2,8 +2,7 @@ import dns from 'node:dns';
 import os from 'node:os';
 import { createInterface } from 'node:readline';
 import pkg from '../../../package.json';
-import { ClaudeAdapter } from '../../agent/claude/adapter';
-import { CodexAdapter } from '../../agent/codex/adapter';
+import { McodeAdapter } from '../../agent/mcode/adapter';
 import {
   AgentPreflightError,
   formatAgentPreflightDiagnostic,

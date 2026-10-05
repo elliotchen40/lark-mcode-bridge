@@ -58,39 +58,64 @@ describe('profile runtime resolver', () => {
     const { backupFile, markerFile } = legacyLarkCliSourceOverlayPaths(configFile);
     const original = `${JSON.stringify({
       schemaVersion: 2,
-      activeProfile: 'codex',
+      activeProfile: 'mcode',
       profiles: {
-        codex: createDefaultProfileConfig({
-          agentKind: 'codex',
+        mcode: createDefaultProfileConfig({
+          agentKind: 'mcode',
           accounts: { app },
-          codex: { binaryPath: 'codex' },
+          mcode: { binaryPath: 'mcode' },
         }),
       },
     }, null, 2)}\n`;
     const overlay = `${JSON.stringify({ accounts: { app: { id: 'cli_overlay' } } }, null, 2)}\n`;
     await writeFile(backupFile, original, { mode: 0o600 });
-    await writeFile(markerFile, `${JSON.stringify({ hadConfig: true, profile: 'codex' })}\n`, {
+    await writeFile(markerFile, `${JSON.stringify({ hadConfig: true, profile: 'mcode' })}\n`, {
       mode: 0o600,
     });
     await writeFile(configFile, overlay, { mode: 0o600 });
 
     const runtime = await resolveProfileRuntime({
       config: configFile,
-      profile: 'codex',
+      profile: 'mcode',
       allowBootstrap: false,
     });
 
-    expect(runtime.profile).toBe('codex');
+    expect(runtime.profile).toBe('mcode');
     const recovered = JSON.parse(await readFile(configFile, 'utf8')) as {
       schemaVersion?: number;
       profiles?: Record<string, unknown>;
       accounts?: unknown;
     };
     expect(recovered.schemaVersion).toBe(2);
-    expect(recovered.profiles?.codex).toBeTruthy();
+    expect(recovered.profiles?.mcode).toBeTruthy();
     expect(recovered.accounts).toBeUndefined();
     await expect(readFile(backupFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(markerFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('fails clearly when no supported local agent is installed', async () => {
+    const root = await tmpRoot();
+    const bin = join(root, 'bin');
+    const oldPath = process.env.PATH;
+    const oldMcode = process.env.LARK_CHANNEL_MCODE_BIN;
+    process.env.PATH = bin;
+    delete process.env.LARK_CHANNEL_MCODE_BIN;
+
+    try {
+      await expect(
+        resolveProfileRuntime({
+          config: join(root, 'config.json'),
+          allowBootstrap: true,
+        }),
+      ).rejects.toThrow(/no supported local agent found/);
+    } finally {
+      process.env.PATH = oldPath;
+      if (oldMcode === undefined) {
+        delete process.env.LARK_CHANNEL_MCODE_BIN;
+      } else {
+        process.env.LARK_CHANNEL_MCODE_BIN = oldMcode;
+      }
+    }
   });
 
   it('bootstraps first-run profile from existing app credentials without QR registration', async () => {
@@ -100,7 +125,7 @@ describe('profile runtime resolver', () => {
 
     const runtime = await resolveProfileRuntime({
       config: join(root, 'config.json'),
-      agent: 'claude',
+      agent: 'mcode',
       workspace,
       allowBootstrap: true,
       appId: 'cli_existing',
@@ -118,7 +143,7 @@ describe('profile runtime resolver', () => {
       profiles: Record<string, { accounts: { app: { id: string; secret: unknown } } }>;
       secrets?: { providers?: Record<string, { command?: string }> };
     };
-    const appPaths = resolveAppPaths({ rootDir: root, profile: 'claude' });
+    const appPaths = resolveAppPaths({ rootDir: root, profile: 'mcode' });
     const secret = await getSecret(secretKeyForApp('cli_existing'), appPaths);
     const workspaceRealpath = await realpath(workspace);
 
@@ -127,11 +152,11 @@ describe('profile runtime resolver', () => {
       'manual-secret',
       'feishu',
     );
-    expect(runtime.profile).toBe('claude');
+    expect(runtime.profile).toBe('mcode');
     expect(runtime.profileConfig.workspaces.default).toBe(workspaceRealpath);
-    expect(saved.activeProfile).toBe('claude');
-    expect(saved.profiles.claude?.accounts.app.id).toBe('cli_existing');
-    expect(saved.profiles.claude?.accounts.app.secret).toEqual({
+    expect(saved.activeProfile).toBe('mcode');
+    expect(saved.profiles.mcode?.accounts.app.id).toBe('cli_existing');
+    expect(saved.profiles.mcode?.accounts.app.secret).toEqual({
       source: 'exec',
       provider: 'bridge',
       id: 'app-cli_existing',
@@ -150,7 +175,7 @@ describe('profile runtime resolver', () => {
     await expect(
       resolveProfileRuntime({
         config: join(root, 'config.json'),
-        agent: 'claude',
+        agent: 'mcode',
         workspace,
         allowBootstrap: true,
         appId: 'cli_bad',
@@ -174,7 +199,7 @@ describe('profile runtime resolver', () => {
       await expect(
         resolveProfileRuntime({
           config: join(root, 'config.json'),
-          agent: 'claude',
+          agent: 'mcode',
           allowBootstrap: true,
         }),
       ).rejects.toThrow(/非交互模式无法完成扫码创建应用/);
@@ -192,7 +217,7 @@ describe('profile runtime resolver', () => {
       await expect(
         resolveProfileRuntime({
           config: join(root, 'config.json'),
-          agent: 'claude',
+          agent: 'mcode',
           allowBootstrap: true,
           appId: 'cli_missing_secret',
           tenant: 'feishu',
@@ -210,7 +235,7 @@ describe('profile runtime resolver', () => {
 
     const runtime = await resolveProfileRuntime({
       config: join(root, 'config.json'),
-      agent: 'claude',
+      agent: 'mcode',
       allowBootstrap: true,
       appId: 'cli_existing',
       appSecret: 'manual-secret',
@@ -221,101 +246,41 @@ describe('profile runtime resolver', () => {
       tenant: 'feishu';
     });
 
-    const managed = await realpath(resolveAppPaths({ rootDir: root, profile: 'claude' }).defaultWorkspaceDir);
+    const managed = await realpath(resolveAppPaths({ rootDir: root, profile: 'mcode' }).defaultWorkspaceDir);
     const savedText = await readFile(join(root, 'config.json'), 'utf8');
     const saved = JSON.parse(savedText) as {
       profiles: Record<string, { workspaces?: { default?: string } }>;
     };
     expect(runtime.profileConfig.workspaces.default).toBe(managed);
-    expect(saved.profiles.claude?.workspaces?.default).toBe(managed);
+    expect(saved.profiles.mcode?.workspaces?.default).toBe(managed);
   });
 
-  it('reports detected local agents when first-run agent selection is ambiguous', async () => {
+  it('bootstraps first-run with the single detected local agent', async () => {
     const root = await tmpRoot();
     const bin = join(root, 'bin');
-    const claude = await writeExecutable(bin, 'claude');
-    const codex = await writeExecutable(bin, 'codex');
+    const mcode = await writeExecutable(bin, 'mcode');
     const oldPath = process.env.PATH;
-    const oldClaude = process.env.LARK_CHANNEL_CLAUDE_BIN;
-    const oldCodex = process.env.LARK_CHANNEL_CODEX_BIN;
+    const oldMcode = process.env.LARK_CHANNEL_MCODE_BIN;
     process.env.PATH = bin;
-    delete process.env.LARK_CHANNEL_CLAUDE_BIN;
-    delete process.env.LARK_CHANNEL_CODEX_BIN;
-
-    try {
-      let error: Error | undefined;
-      try {
-        await resolveProfileRuntime({
-          config: join(root, 'config.json'),
-          allowBootstrap: true,
-          selectAgent: () => undefined,
-        });
-      } catch (err) {
-        if (!(err instanceof Error)) throw err;
-        error = err;
-      }
-
-      expect(error).toBeDefined();
-      const message = error?.message ?? '';
-      expect(message).toContain('检测到多个本地 agent');
-      expect(message).toContain('claude');
-      expect(message).toContain(claude);
-      expect(message).toContain('codex');
-      expect(message).toContain(codex);
-      expect(message).toContain('--agent <claude|codex>');
-    } finally {
-      process.env.PATH = oldPath;
-      if (oldClaude === undefined) {
-        delete process.env.LARK_CHANNEL_CLAUDE_BIN;
-      } else {
-        process.env.LARK_CHANNEL_CLAUDE_BIN = oldClaude;
-      }
-      if (oldCodex === undefined) {
-        delete process.env.LARK_CHANNEL_CODEX_BIN;
-      } else {
-        process.env.LARK_CHANNEL_CODEX_BIN = oldCodex;
-      }
-    }
-  });
-
-  it('continues first-run bootstrap with the selected local agent when multiple are detected', async () => {
-    const root = await tmpRoot();
-    const bin = join(root, 'bin');
-    const codex = await writeExecutable(bin, 'codex');
-    await writeExecutable(bin, 'claude');
-    const oldPath = process.env.PATH;
-    const oldClaude = process.env.LARK_CHANNEL_CLAUDE_BIN;
-    const oldCodex = process.env.LARK_CHANNEL_CODEX_BIN;
-    process.env.PATH = bin;
-    delete process.env.LARK_CHANNEL_CLAUDE_BIN;
-    delete process.env.LARK_CHANNEL_CODEX_BIN;
+    delete process.env.LARK_CHANNEL_MCODE_BIN;
 
     try {
       const runtime = await withTty(true, true, () =>
         resolveProfileRuntime({
           config: join(root, 'config.json'),
           allowBootstrap: true,
-          selectAgent: (detected) => {
-            expect(detected.map((agent) => agent.kind)).toEqual(['claude', 'codex']);
-            return 'codex';
-          },
         }),
       );
 
-      expect(runtime.profile).toBe('codex');
-      expect(runtime.profileConfig.agentKind).toBe('codex');
-      expect(runtime.profileConfig.codex?.binaryPath).toBe(codex);
+      expect(runtime.profile).toBe('mcode');
+      expect(runtime.profileConfig.agentKind).toBe('mcode');
+      expect(runtime.profileConfig.mcode?.binaryPath).toBe(mcode);
     } finally {
       process.env.PATH = oldPath;
-      if (oldClaude === undefined) {
-        delete process.env.LARK_CHANNEL_CLAUDE_BIN;
+      if (oldMcode === undefined) {
+        delete process.env.LARK_CHANNEL_MCODE_BIN;
       } else {
-        process.env.LARK_CHANNEL_CLAUDE_BIN = oldClaude;
-      }
-      if (oldCodex === undefined) {
-        delete process.env.LARK_CHANNEL_CODEX_BIN;
-      } else {
-        process.env.LARK_CHANNEL_CODEX_BIN = oldCodex;
+        process.env.LARK_CHANNEL_MCODE_BIN = oldMcode;
       }
     }
   });
@@ -332,17 +297,17 @@ describe('profile runtime resolver', () => {
 
     const runtime = await resolveProfileRuntime({
       config: join(root, 'config.json'),
-      agent: 'claude',
+      agent: 'mcode',
       allowBootstrap: true,
     });
 
-    const managed = await realpath(resolveAppPaths({ rootDir: root, profile: 'claude' }).defaultWorkspaceDir);
+    const managed = await realpath(resolveAppPaths({ rootDir: root, profile: 'mcode' }).defaultWorkspaceDir);
     const savedText = await readFile(join(root, 'config.json'), 'utf8');
     const saved = JSON.parse(savedText) as {
       profiles: Record<string, { workspaces?: { default?: string } }>;
     };
     expect(runtime.profileConfig.workspaces.default).toBe(managed);
-    expect(saved.profiles.claude?.workspaces?.default).toBe(managed);
+    expect(saved.profiles.mcode?.workspaces?.default).toBe(managed);
   });
 
   it('uses a requested workspace when converting an explicit legacy config', async () => {
@@ -359,7 +324,7 @@ describe('profile runtime resolver', () => {
 
     const runtime = await resolveProfileRuntime({
       config: join(root, 'config.json'),
-      agent: 'claude',
+      agent: 'mcode',
       workspace,
       allowBootstrap: true,
     });
@@ -392,7 +357,7 @@ describe('profile runtime resolver', () => {
 
     const runtime = await resolveProfileRuntime({
       config: join(root, 'config.json'),
-      profile: 'claude',
+      profile: 'mcode',
       workspace,
       allowBootstrap: false,
     });
@@ -420,18 +385,18 @@ describe('profile runtime resolver', () => {
       showToolCalls: false,
       maxConcurrentRuns: 3,
     });
-    expect(saved.profiles.claude?.permissions).toEqual({
+    expect(saved.profiles.mcode?.permissions).toEqual({
       defaultAccess: 'full',
       maxAccess: 'full',
     });
-    expect(saved.profiles.claude).not.toHaveProperty('sandbox');
-    expect(saved.profiles.claude?.access).toEqual({
+    expect(saved.profiles.mcode).not.toHaveProperty('sandbox');
+    expect(saved.profiles.mcode?.access).toEqual({
       allowedUsers: ['ou_allowed'],
       allowedChats: ['oc_allowed'],
       admins: ['ou_admin'],
       requireMentionInGroup: false,
     });
-    expect(saved.profiles.claude?.preferences).toMatchObject({
+    expect(saved.profiles.mcode?.preferences).toMatchObject({
       messageReply: 'card',
       showToolCalls: false,
       maxConcurrentRuns: 3,
@@ -441,7 +406,7 @@ describe('profile runtime resolver', () => {
   it('uses the requested agent when migrating a legacy config into an explicit profile', async () => {
     const root = await tmpRoot();
     const bin = join(root, 'bin');
-    const codex = await writeExecutable(bin, 'codex');
+    const mcode = await writeExecutable(bin, 'mcode');
     const oldPath = process.env.PATH;
     const oldHome = process.env.LARK_CHANNEL_HOME;
     process.env.PATH = `${bin}${delimiter}${oldPath ?? ''}`;
@@ -456,19 +421,19 @@ describe('profile runtime resolver', () => {
 
     try {
       const runtime = await resolveProfileRuntime({
-        profile: 'codex',
-        agent: 'codex',
+        profile: 'mcode',
+        agent: 'mcode',
         allowBootstrap: true,
       });
       const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
-        profiles: Record<string, { agentKind: string; codex?: { binaryPath?: string } }>;
+        profiles: Record<string, { agentKind: string; mcode?: { binaryPath?: string } }>;
       };
 
-      expect(runtime.profile).toBe('codex');
-      expect(runtime.profileConfig.agentKind).toBe('codex');
-      expect(runtime.profileConfig.codex?.binaryPath).toBe(codex);
-      expect(saved.profiles.codex?.agentKind).toBe('codex');
-      expect(saved.profiles.codex?.codex?.binaryPath).toBe(codex);
+      expect(runtime.profile).toBe('mcode');
+      expect(runtime.profileConfig.agentKind).toBe('mcode');
+      expect(runtime.profileConfig.mcode?.binaryPath).toBe(mcode);
+      expect(saved.profiles.mcode?.agentKind).toBe('mcode');
+      expect(saved.profiles.mcode?.mcode?.binaryPath).toBe(mcode);
     } finally {
       process.env.PATH = oldPath;
       if (oldHome === undefined) {
@@ -482,7 +447,7 @@ describe('profile runtime resolver', () => {
   it('runs the same v2 migration for explicit config paths', async () => {
     const root = await tmpRoot();
     const bin = join(root, 'bin');
-    const codex = await writeExecutable(bin, 'codex');
+    const mcode = await writeExecutable(bin, 'mcode');
     const oldPath = process.env.PATH;
     process.env.PATH = `${bin}${delimiter}${oldPath ?? ''}`;
     await writeFile(
@@ -500,19 +465,15 @@ describe('profile runtime resolver', () => {
     try {
       const runtime = await resolveProfileRuntime({
         config: join(root, 'config.json'),
-        profile: 'codex',
-        agent: 'codex',
+        profile: 'mcode',
+        agent: 'mcode',
         allowBootstrap: true,
       });
 
-      expect(runtime.profileConfig.agentKind).toBe('codex');
-      expect(runtime.profileConfig.codex).toMatchObject({
-        binaryPath: codex,
-      });
-      expect(runtime.profileConfig.codex?.realpath).toBeUndefined();
-      expect(runtime.profileConfig.codex?.version).toBeUndefined();
-      expect(runtime.profileConfig.codex?.sha256).toBeUndefined();
-      await expect(readFile(join(root, 'profiles', 'codex', 'sessions.json'), 'utf8')).resolves
+      expect(runtime.profileConfig.agentKind).toBe('mcode');
+      // v2 migration pins only the binary path; no probed metadata is stored.
+      expect(runtime.profileConfig.mcode).toEqual({ binaryPath: mcode });
+      await expect(readFile(join(root, 'profiles', 'mcode', 'sessions.json'), 'utf8')).resolves
         .toContain('thread-1');
       await expect(readFile(join(root, 'sessions.json'), 'utf8')).rejects.toMatchObject({
         code: 'ENOENT',
@@ -543,7 +504,7 @@ describe('profile runtime resolver', () => {
 
     const runtime = await resolveProfileRuntime({
       config: join(root, 'config.json'),
-      agent: 'claude',
+      agent: 'mcode',
       allowBootstrap: true,
     });
 
@@ -551,169 +512,35 @@ describe('profile runtime resolver', () => {
     expect(runtime.profileConfig.workspaces.default).toBe(workspaceRealpath);
   });
 
-  it('resolves the active Codex profile from a v2 root config', async () => {
+  it('resolves the active profile from a v2 root config', async () => {
     const root = await tmpRoot();
-    await writeProfileRoot(root, 'codex-dev', {
-      claude: createDefaultProfileConfig({ agentKind: 'claude', accounts: { app } }),
-      'codex-dev': createDefaultProfileConfig({
-        agentKind: 'codex',
-        accounts: { app: { ...app, id: 'cli_codex' } },
-        codex: { binaryPath: '/usr/local/bin/codex' },
+    await writeProfileRoot(root, 'mcode-dev', {
+      work: createDefaultProfileConfig({ agentKind: 'mcode', accounts: { app } }),
+      'mcode-dev': createDefaultProfileConfig({
+        agentKind: 'mcode',
+        accounts: { app: { ...app, id: 'cli_mcode' } },
+        mcode: { binaryPath: '/usr/local/bin/mcode' },
       }),
     });
 
     const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
 
-    expect(runtime.profile).toBe('codex-dev');
-    expect(runtime.profileConfig.agentKind).toBe('codex');
-    expect(runtime.appPaths.profileDir).toBe(join(root, 'profiles', 'codex-dev'));
+    expect(runtime.profile).toBe('mcode-dev');
+    expect(runtime.profileConfig.agentKind).toBe('mcode');
+    expect(runtime.appPaths.profileDir).toBe(join(root, 'profiles', 'mcode-dev'));
   });
 
-  it('canonicalizes legacy Codex sandbox while fixing old Codex runtime defaults', async () => {
+  it('stamps the permission-defaults migration marker without widening stored permissions', async () => {
     const root = await tmpRoot();
-    const legacyCodex = createDefaultProfileConfig({
-      agentKind: 'codex',
-      accounts: { app: { ...app, id: 'cli_codex' } },
-      codex: { binaryPath: '/usr/local/bin/codex' },
-    }) as unknown as Record<string, unknown>;
-    legacyCodex.sandbox = {
-      default: 'read-only',
-      max: 'read-only',
-      defaultMode: 'read-only',
-      maxMode: 'read-only',
-    };
-    delete legacyCodex.permissions;
-    delete legacyCodex.permissionSource;
-    (legacyCodex.codex as { inheritCodexHome?: boolean }).inheritCodexHome = false;
-    await writeProfileRoot(root, 'codex-dev', {
-      'codex-dev': legacyCodex,
-    });
-
-    const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
-    const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
-      profiles: Record<string, {
-        permissions?: unknown;
-        sandbox?: unknown;
-        permissionSource?: unknown;
-        codex?: { inheritCodexHome?: boolean; ignoreUserConfig?: boolean };
-      }>;
-    };
-
-    expect(runtime.profileConfig.permissions).toEqual({
-      defaultAccess: 'read-only',
-      maxAccess: 'read-only',
-    });
-    expect(runtime.profileConfig.sandbox).toMatchObject({
-      defaultMode: 'read-only',
-      maxMode: 'read-only',
-    });
-    expect(runtime.profileConfig.codex?.inheritCodexHome).toBe(true);
-    expect(runtime.profileConfig.codex?.ignoreUserConfig).toBe(false);
-    expect(saved.profiles['codex-dev']?.permissions).toEqual({
-      defaultAccess: 'read-only',
-      maxAccess: 'read-only',
-    });
-    expect(saved.profiles['codex-dev']).not.toHaveProperty('sandbox');
-    expect(saved.profiles['codex-dev']).not.toHaveProperty('permissionSource');
-    expect(saved.profiles['codex-dev']?.codex?.inheritCodexHome).toBe(true);
-    expect(saved.profiles['codex-dev']?.codex?.ignoreUserConfig).toBe(false);
-  });
-
-  it('upgrades legacy Claude workspace sandbox default to full access', async () => {
-    const root = await tmpRoot();
-    const legacyClaude = createDefaultProfileConfig({
-      agentKind: 'claude',
-      accounts: { app },
-    }) as unknown as Record<string, unknown>;
-    legacyClaude.sandbox = {
-      default: 'workspace-write',
-      max: 'workspace-write',
-      defaultMode: 'workspace-write',
-      maxMode: 'workspace-write',
-    };
-    delete legacyClaude.permissions;
-    delete legacyClaude.permissionSource;
-    await writeProfileRoot(root, 'claude', { claude: legacyClaude });
-
-    const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
-    const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
-      migrations?: { permissionDefaultsV1?: string[] };
-      profiles: Record<string, {
-        permissions?: unknown;
-        sandbox?: unknown;
-        permissionSource?: unknown;
-      }>;
-    };
-
-    expect(runtime.profileConfig.permissions).toEqual({
-      defaultAccess: 'full',
-      maxAccess: 'full',
-    });
-    expect(runtime.profileConfig.sandbox).toMatchObject({
-      defaultMode: 'danger-full-access',
-      maxMode: 'danger-full-access',
-    });
-    expect(saved.profiles.claude?.permissions).toEqual({
-      defaultAccess: 'full',
-      maxAccess: 'full',
-    });
-    expect(saved.profiles.claude).not.toHaveProperty('sandbox');
-    expect(saved.profiles.claude).not.toHaveProperty('permissionSource');
-    expect(saved.migrations?.permissionDefaultsV1).toContain('claude');
-  });
-
-  it('canonicalizes legacy Claude read-only sandbox without widening permissions', async () => {
-      const root = await tmpRoot();
-      const legacyClaude = createDefaultProfileConfig({
-        agentKind: 'claude',
-        accounts: { app },
-      }) as unknown as Record<string, unknown>;
-      legacyClaude.sandbox = {
-        default: 'read-only',
-        max: 'read-only',
-        defaultMode: 'read-only',
-        maxMode: 'read-only',
-      };
-      delete legacyClaude.permissions;
-      delete legacyClaude.permissionSource;
-      await writeProfileRoot(root, 'claude', { claude: legacyClaude });
-
-      const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
-      const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
-        profiles: Record<string, {
-          permissions?: unknown;
-          sandbox?: unknown;
-          permissionSource?: unknown;
-        }>;
-      };
-
-      expect(runtime.profileConfig.permissions).toEqual({
-        defaultAccess: 'read-only',
-        maxAccess: 'read-only',
-      });
-      expect(runtime.profileConfig.sandbox).toMatchObject({
-        defaultMode: 'read-only',
-        maxMode: 'read-only',
-      });
-      expect(saved.profiles.claude?.permissions).toEqual({
-        defaultAccess: 'read-only',
-        maxAccess: 'read-only',
-      });
-      expect(saved.profiles.claude).not.toHaveProperty('sandbox');
-      expect(saved.profiles.claude).not.toHaveProperty('permissionSource');
-  });
-
-  it('upgrades unmarked canonical Claude workspace defaults from internal migrations', async () => {
-    const root = await tmpRoot();
-    const claude = createDefaultProfileConfig({
-      agentKind: 'claude',
+    const mcode = createDefaultProfileConfig({
+      agentKind: 'mcode',
       accounts: { app },
       permissions: {
         defaultAccess: 'workspace',
         maxAccess: 'workspace',
       },
     });
-    await writeProfileRoot(root, 'claude', { claude });
+    await writeProfileRoot(root, 'mcode', { mcode });
 
     const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
     const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
@@ -722,29 +549,29 @@ describe('profile runtime resolver', () => {
     };
 
     expect(runtime.profileConfig.permissions).toEqual({
-      defaultAccess: 'full',
-      maxAccess: 'full',
+      defaultAccess: 'workspace',
+      maxAccess: 'workspace',
     });
-    expect(saved.profiles.claude?.permissions).toEqual({
-      defaultAccess: 'full',
-      maxAccess: 'full',
+    expect(saved.profiles.mcode?.permissions).toEqual({
+      defaultAccess: 'workspace',
+      maxAccess: 'workspace',
     });
-    expect(saved.profiles.claude).not.toHaveProperty('sandbox');
-    expect(saved.migrations?.permissionDefaultsV1).toContain('claude');
+    expect(saved.profiles.mcode).not.toHaveProperty('sandbox');
+    expect(saved.migrations?.permissionDefaultsV1).toContain('mcode');
   });
 
-  it('keeps marked canonical Claude workspace permissions for users who lower access after migration', async () => {
+  it('keeps marked canonical workspace permissions for users who lower access after migration', async () => {
     const root = await tmpRoot();
-    const claude = createDefaultProfileConfig({
-      agentKind: 'claude',
+    const mcode = createDefaultProfileConfig({
+      agentKind: 'mcode',
       accounts: { app },
       permissions: {
         defaultAccess: 'workspace',
         maxAccess: 'workspace',
       },
     });
-    await writeProfileRoot(root, 'claude', { claude }, {
-      migrations: { permissionDefaultsV1: ['claude'] },
+    await writeProfileRoot(root, 'mcode', { mcode }, {
+      migrations: { permissionDefaultsV1: ['mcode'] },
     });
 
     const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
@@ -757,28 +584,28 @@ describe('profile runtime resolver', () => {
       defaultAccess: 'workspace',
       maxAccess: 'workspace',
     });
-    expect(saved.profiles.claude?.permissions).toEqual({
+    expect(saved.profiles.mcode?.permissions).toEqual({
       defaultAccess: 'workspace',
       maxAccess: 'workspace',
     });
-    expect(saved.profiles.claude).not.toHaveProperty('sandbox');
-    expect(saved.migrations?.permissionDefaultsV1).toContain('claude');
+    expect(saved.profiles.mcode).not.toHaveProperty('sandbox');
+    expect(saved.migrations?.permissionDefaultsV1).toContain('mcode');
   });
 
-  it('keeps unmarked canonical Claude workspace override as explicit lower access', async () => {
+  it('keeps unmarked canonical workspace permissions with an mcode policy override as explicit lower access', async () => {
     const root = await tmpRoot();
-    const claude = createDefaultProfileConfig({
-      agentKind: 'claude',
+    const mcode = createDefaultProfileConfig({
+      agentKind: 'mcode',
       accounts: { app },
       permissions: {
         defaultAccess: 'workspace',
         maxAccess: 'workspace',
-        claude: {
-          permissionMode: 'acceptEdits',
+        mcode: {
+          policy: 'smart',
         },
       },
     });
-    await writeProfileRoot(root, 'claude', { claude });
+    await writeProfileRoot(root, 'mcode', { mcode });
 
     const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
     const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
@@ -789,73 +616,32 @@ describe('profile runtime resolver', () => {
     expect(runtime.profileConfig.permissions).toEqual({
       defaultAccess: 'workspace',
       maxAccess: 'workspace',
-      claude: {
-        permissionMode: 'acceptEdits',
+      mcode: {
+        policy: 'smart',
       },
     });
-    expect(saved.profiles.claude?.permissions).toEqual({
+    expect(saved.profiles.mcode?.permissions).toEqual({
       defaultAccess: 'workspace',
       maxAccess: 'workspace',
-      claude: {
-        permissionMode: 'acceptEdits',
+      mcode: {
+        policy: 'smart',
       },
     });
-    expect(saved.profiles.claude).not.toHaveProperty('sandbox');
-    expect(saved.migrations?.permissionDefaultsV1).toContain('claude');
-  });
-
-  it('keeps legacy Claude mixed lower sandbox permissions when resolving an existing profile', async () => {
-    const root = await tmpRoot();
-    const legacyClaude = createDefaultProfileConfig({
-      agentKind: 'claude',
-      accounts: { app },
-    }) as unknown as Record<string, unknown>;
-    legacyClaude.sandbox = {
-      default: 'read-only',
-      max: 'workspace-write',
-      defaultMode: 'read-only',
-      maxMode: 'workspace-write',
-    };
-    delete legacyClaude.permissions;
-    delete legacyClaude.permissionSource;
-    await writeProfileRoot(root, 'claude', { claude: legacyClaude });
-
-    const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
-    const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
-      profiles: Record<string, {
-        permissions?: unknown;
-        sandbox?: unknown;
-        permissionSource?: unknown;
-      }>;
-    };
-
-    expect(runtime.profileConfig.permissions).toEqual({
-      defaultAccess: 'read-only',
-      maxAccess: 'workspace',
-    });
-    expect(runtime.profileConfig.sandbox).toMatchObject({
-      defaultMode: 'read-only',
-      maxMode: 'workspace-write',
-    });
-    expect(saved.profiles.claude?.permissions).toEqual({
-      defaultAccess: 'read-only',
-      maxAccess: 'workspace',
-    });
-    expect(saved.profiles.claude).not.toHaveProperty('sandbox');
-    expect(saved.profiles.claude).not.toHaveProperty('permissionSource');
+    expect(saved.profiles.mcode).not.toHaveProperty('sandbox');
+    expect(saved.migrations?.permissionDefaultsV1).toContain('mcode');
   });
 
   it('keeps explicit canonical lower permissions when resolving an existing profile', async () => {
     const root = await tmpRoot();
-    const claude = createDefaultProfileConfig({
-      agentKind: 'claude',
+    const mcode = createDefaultProfileConfig({
+      agentKind: 'mcode',
       accounts: { app },
       permissions: {
         defaultAccess: 'read-only',
         maxAccess: 'read-only',
       },
     });
-    await writeProfileRoot(root, 'claude', { claude });
+    await writeProfileRoot(root, 'mcode', { mcode });
 
     const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
     const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
@@ -870,145 +656,54 @@ describe('profile runtime resolver', () => {
       defaultAccess: 'read-only',
       maxAccess: 'read-only',
     });
-    expect(runtime.profileConfig.sandbox).toMatchObject({
-      defaultMode: 'read-only',
-      maxMode: 'read-only',
-    });
-    expect(saved.profiles.claude?.permissions).toEqual({
+    expect(runtime.profileConfig).not.toHaveProperty('sandbox');
+    expect(saved.profiles.mcode?.permissions).toEqual({
       defaultAccess: 'read-only',
       maxAccess: 'read-only',
     });
-    expect(saved.profiles.claude).not.toHaveProperty('sandbox');
-    expect(saved.profiles.claude).not.toHaveProperty('permissionSource');
-  });
-
-  it('upgrades legacy isolated Codex config even after sandbox was already upgraded', async () => {
-    const root = await tmpRoot();
-    const legacyCodex = createDefaultProfileConfig({
-      agentKind: 'codex',
-      accounts: { app: { ...app, id: 'cli_codex' } },
-      codex: { binaryPath: '/usr/local/bin/codex' },
-    }) as unknown as Record<string, unknown>;
-    delete legacyCodex.permissions;
-    delete legacyCodex.permissionSource;
-    (legacyCodex.codex as { inheritCodexHome?: boolean }).inheritCodexHome = false;
-    (legacyCodex.codex as { ignoreUserConfig?: boolean }).ignoreUserConfig = true;
-    await writeProfileRoot(root, 'codex-dev', {
-      'codex-dev': legacyCodex,
-    });
-
-    const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
-    const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
-      profiles: Record<string, { codex?: { inheritCodexHome?: boolean; ignoreUserConfig?: boolean } }>;
-    };
-
-    expect(runtime.profileConfig.sandbox).toMatchObject({
-      defaultMode: 'danger-full-access',
-      maxMode: 'danger-full-access',
-    });
-    expect(runtime.profileConfig.codex?.inheritCodexHome).toBe(true);
-    expect(runtime.profileConfig.codex?.ignoreUserConfig).toBe(false);
-    expect(saved.profiles['codex-dev']?.codex?.inheritCodexHome).toBe(true);
-    expect(saved.profiles['codex-dev']?.codex?.ignoreUserConfig).toBe(false);
-  });
-
-  it('keeps explicit canonical Codex home and user-config isolation settings', async () => {
-    const root = await tmpRoot();
-    const codex = createDefaultProfileConfig({
-      agentKind: 'codex',
-      accounts: { app: { ...app, id: 'cli_codex' } },
-      codex: {
-        binaryPath: '/usr/local/bin/codex',
-        inheritCodexHome: false,
-        ignoreUserConfig: true,
-      },
-      permissions: {
-        defaultAccess: 'full',
-        maxAccess: 'full',
-      },
-    });
-    await writeProfileRoot(root, 'codex-dev', {
-      'codex-dev': codex,
-    });
-
-    const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
-    const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
-      profiles: Record<string, { codex?: { inheritCodexHome?: boolean; ignoreUserConfig?: boolean } }>;
-    };
-
-    expect(runtime.profileConfig.codex?.inheritCodexHome).toBe(false);
-    expect(runtime.profileConfig.codex?.ignoreUserConfig).toBe(true);
-    expect(saved.profiles['codex-dev']?.codex?.inheritCodexHome).toBe(false);
-    expect(saved.profiles['codex-dev']?.codex?.ignoreUserConfig).toBe(true);
+    expect(saved.profiles.mcode).not.toHaveProperty('sandbox');
+    expect(saved.profiles.mcode).not.toHaveProperty('permissionSource');
   });
 
   it('creates a managed default workspace for profiles without a default', async () => {
     const root = await tmpRoot();
     const profile = createDefaultProfileConfig({
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
     });
     profile.workspaces = {};
-    await writeProfileRoot(root, 'claude', { claude: profile });
+    await writeProfileRoot(root, 'mcode', { mcode: profile });
 
     const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
 
-    const managed = await realpath(resolveAppPaths({ rootDir: root, profile: 'claude' }).defaultWorkspaceDir);
+    const managed = await realpath(resolveAppPaths({ rootDir: root, profile: 'mcode' }).defaultWorkspaceDir);
     expect(runtime.profileConfig.workspaces.default).toBe(managed);
   });
 
   it('lets an explicit profile override active-profile', async () => {
     const root = await tmpRoot();
-    await writeProfileRoot(root, 'codex-dev', {
-      claude: createDefaultProfileConfig({ agentKind: 'claude', accounts: { app } }),
-      'codex-dev': createDefaultProfileConfig({
-        agentKind: 'codex',
-        accounts: { app: { ...app, id: 'cli_codex' } },
-        codex: { binaryPath: '/usr/local/bin/codex' },
+    await writeProfileRoot(root, 'mcode-dev', {
+      work: createDefaultProfileConfig({ agentKind: 'mcode', accounts: { app } }),
+      'mcode-dev': createDefaultProfileConfig({
+        agentKind: 'mcode',
+        accounts: { app: { ...app, id: 'cli_mcode' } },
+        mcode: { binaryPath: '/usr/local/bin/mcode' },
       }),
     });
 
     const runtime = await resolveProfileRuntime({
       config: join(root, 'config.json'),
-      profile: 'claude',
+      profile: 'work',
     });
 
-    expect(runtime.profile).toBe('claude');
-    expect(runtime.profileConfig.agentKind).toBe('claude');
-  });
-
-  it('rejects an explicit agent that conflicts with an existing profile', async () => {
-    const root = await tmpRoot();
-    await writeProfileRoot(root, 'codex', {
-      codex: createDefaultProfileConfig({ agentKind: 'claude', accounts: { app } }),
-    });
-
-    let error: Error | undefined;
-    try {
-      await resolveProfileRuntime({
-        config: join(root, 'config.json'),
-        profile: 'codex',
-        agent: 'codex',
-        allowBootstrap: true,
-      });
-    } catch (err) {
-      if (!(err instanceof Error)) throw err;
-      error = err;
-    }
-
-    expect(error).toBeDefined();
-    const message = error?.message ?? '';
-    expect(message).toContain('profile codex already exists with agentKind claude');
-    expect(message).toContain('requested --agent codex');
-    expect(message).toContain('Profile names are labels');
-    expect(message).toContain('omit --agent');
-    expect(message).toContain('remove profile codex');
+    expect(runtime.profile).toBe('work');
+    expect(runtime.profileConfig.agentKind).toBe('mcode');
   });
 
   it('fails when active-profile points at a missing profile instead of falling back', async () => {
     const root = await tmpRoot();
     await writeProfileRoot(root, 'missing-profile', {
-      claude: createDefaultProfileConfig({ agentKind: 'claude', accounts: { app } }),
+      work: createDefaultProfileConfig({ agentKind: 'mcode', accounts: { app } }),
     });
 
     await expect(
@@ -1020,17 +715,17 @@ describe('profile runtime resolver', () => {
     const root = await tmpRoot();
     const workspace = join(root, 'workspace');
     await mkdir(join(workspace, '.git'), { recursive: true });
-    await writeProfileRoot(root, 'codex-dev', {
-      'codex-dev': createDefaultProfileConfig({
-        agentKind: 'codex',
-        accounts: { app: { ...app, id: 'cli_codex' } },
-        codex: { binaryPath: '/usr/local/bin/codex' },
+    await writeProfileRoot(root, 'mcode-dev', {
+      'mcode-dev': createDefaultProfileConfig({
+        agentKind: 'mcode',
+        accounts: { app: { ...app, id: 'cli_mcode' } },
+        mcode: { binaryPath: '/usr/local/bin/mcode' },
       }),
     });
     wizard.next = {
       accounts: {
         app: {
-          id: 'cli_claude_regression',
+          id: 'cli_mcode_regression',
           secret: 'new-profile-secret',
           tenant: 'feishu',
         },
@@ -1041,8 +736,8 @@ describe('profile runtime resolver', () => {
     const runtime = await withTty(true, true, () =>
       resolveProfileRuntime({
         config: join(root, 'config.json'),
-        profile: 'claude-regression',
-        agent: 'claude',
+        profile: 'mcode-regression',
+        agent: 'mcode',
         workspace,
         allowBootstrap: true,
       }),
@@ -1051,75 +746,77 @@ describe('profile runtime resolver', () => {
       activeProfile: string;
       profiles: Record<string, { agentKind: string; accounts: { app: { id: string } } }>;
     };
-    const appPaths = resolveAppPaths({ rootDir: root, profile: 'claude-regression' });
-    const secret = await getSecret(secretKeyForApp('cli_claude_regression'), appPaths);
+    const appPaths = resolveAppPaths({ rootDir: root, profile: 'mcode-regression' });
+    const secret = await getSecret(secretKeyForApp('cli_mcode_regression'), appPaths);
     const workspaceRealpath = await realpath(workspace);
 
-    expect(runtime.profile).toBe('claude-regression');
-    expect(runtime.profileConfig.agentKind).toBe('claude');
+    expect(runtime.profile).toBe('mcode-regression');
+    expect(runtime.profileConfig.agentKind).toBe('mcode');
     expect(runtime.profileConfig.workspaces.default).toBe(workspaceRealpath);
-    expect(saved.activeProfile).toBe('codex-dev');
-    await expect(readFile(join(root, 'active-profile'), 'utf8')).resolves.toBe('codex-dev\n');
-    expect(saved.profiles['codex-dev']?.agentKind).toBe('codex');
-    expect(saved.profiles['claude-regression']?.agentKind).toBe('claude');
-    expect(saved.profiles['claude-regression']?.accounts.app.id).toBe('cli_claude_regression');
+    expect(saved.activeProfile).toBe('mcode-dev');
+    await expect(readFile(join(root, 'active-profile'), 'utf8')).resolves.toBe('mcode-dev\n');
+    expect(saved.profiles['mcode-dev']?.agentKind).toBe('mcode');
+    expect(saved.profiles['mcode-regression']?.agentKind).toBe('mcode');
+    expect(saved.profiles['mcode-regression']?.accounts.app.id).toBe('cli_mcode_regression');
     expect(secret).toBe('new-profile-secret');
   });
 
   it('normalizes stored v2 profiles before exposing runtime config', async () => {
     const root = await tmpRoot();
-    const codex = createDefaultProfileConfig({
-      agentKind: 'codex',
-      accounts: { app: { ...app, id: 'cli_codex' } },
-      codex: { binaryPath: '/usr/local/bin/codex' },
+    const mcode = createDefaultProfileConfig({
+      agentKind: 'mcode',
+      accounts: { app: { ...app, id: 'cli_mcode' } },
+      mcode: { binaryPath: '/usr/local/bin/mcode' },
     }) as unknown as Record<string, unknown>;
-    codex.codex = {
-      ...(codex.codex as Record<string, unknown>),
-      flags: ['--danger-full-access'],
+    mcode.mcode = {
+      ...(mcode.mcode as Record<string, unknown>),
+      flags: ['--dangerously-skip-permissions'],
     };
-    codex.workspaces = {
+    mcode.workspaces = {
       default: '/repo/project',
       trustedRoots: ['/repo'],
     };
-    await writeProfileRoot(root, 'codex-dev', { 'codex-dev': codex });
+    await writeProfileRoot(root, 'mcode-dev', { 'mcode-dev': mcode });
 
     const runtime = await resolveProfileRuntime({ config: join(root, 'config.json') });
 
     expect(runtime.profileConfig.workspaces.default).toBe('/repo/project');
-    expect(runtime.profileConfig.codex).not.toHaveProperty('flags');
+    expect(runtime.profileConfig.workspaces).not.toHaveProperty('trustedRoots');
+    expect(runtime.profileConfig.mcode).toEqual({ binaryPath: '/usr/local/bin/mcode' });
+    expect(runtime.profileConfig.mcode).not.toHaveProperty('flags');
   });
 
   it('materializes env-backed secrets into encrypted profile storage for service mode', async () => {
     const root = await tmpRoot();
     process.env.BRIDGE_TEST_APP_SECRET = 'service-mode-secret';
-    await writeProfileRoot(root, 'codex-dev', {
-      'codex-dev': createDefaultProfileConfig({
-        agentKind: 'codex',
+    await writeProfileRoot(root, 'mcode-dev', {
+      'mcode-dev': createDefaultProfileConfig({
+        agentKind: 'mcode',
         accounts: {
           app: {
-            id: 'cli_codex',
+            id: 'cli_mcode',
             secret: { source: 'env', id: 'BRIDGE_TEST_APP_SECRET' },
             tenant: 'feishu',
           },
         },
-        codex: { binaryPath: '/usr/local/bin/codex' },
+        mcode: { binaryPath: '/usr/local/bin/mcode' },
       }),
     });
 
     const changed = await materializeEnvSecretForService({
       config: join(root, 'config.json'),
-      profile: 'codex-dev',
+      profile: 'mcode-dev',
     });
 
     const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as {
       profiles: Record<string, { accounts: { app: { secret: unknown } } }>;
       secrets?: { providers?: Record<string, { command?: string }> };
     };
-    const appPaths = resolveAppPaths({ rootDir: root, profile: 'codex-dev' });
-    const secret = await getSecret(secretKeyForApp('cli_codex'), appPaths);
+    const appPaths = resolveAppPaths({ rootDir: root, profile: 'mcode-dev' });
+    const secret = await getSecret(secretKeyForApp('cli_mcode'), appPaths);
     const runtime = await resolveProfileRuntime({
       config: join(root, 'config.json'),
-      profile: 'codex-dev',
+      profile: 'mcode-dev',
       allowBootstrap: false,
     });
     const projectionPath = await writeLarkCliSourceProjection(runtime.cfg, appPaths);
@@ -1130,10 +827,10 @@ describe('profile runtime resolver', () => {
     };
 
     expect(changed).toBe(true);
-    expect(saved.profiles['codex-dev']?.accounts.app.secret).toEqual({
+    expect(saved.profiles['mcode-dev']?.accounts.app.secret).toEqual({
       source: 'exec',
       provider: 'bridge',
-      id: 'app-cli_codex',
+      id: 'app-cli_mcode',
     });
     expect(saved.secrets?.providers?.bridge?.command).toBe(expectedSecretsGetter(root));
     expect(secret).toBe('service-mode-secret');
@@ -1141,12 +838,12 @@ describe('profile runtime resolver', () => {
     expect(projection.accounts.app.secret).toEqual({
       source: 'exec',
       provider: 'bridge',
-      id: 'app-cli_codex',
+      id: 'app-cli_mcode',
     });
     expect(projection.secrets?.providers?.bridge?.command).toBe(expectedSecretsGetter(root));
     expect(projection.secrets?.providers?.bridge?.env).toMatchObject({
       LARK_CHANNEL_HOME: root,
-      LARK_CHANNEL_PROFILE: 'codex-dev',
+      LARK_CHANNEL_PROFILE: 'mcode-dev',
     });
   });
 });

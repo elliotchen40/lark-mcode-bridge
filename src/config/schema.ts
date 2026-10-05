@@ -230,7 +230,7 @@ export function getCotMessages(cfg: AppConfig): CotMessagesMode {
 export function getMaxConcurrentRuns(cfg: AppConfig): number {
   const raw = cfg.preferences?.maxConcurrentRuns;
   if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 1) return 10;
-  // Reasonable upper bound — at 50+ concurrent claudes the bot box is
+  // Reasonable upper bound — at 50+ concurrent runs the bot box is
   // probably already RAM-starved. Clamp to keep typos from killing the box.
   return Math.min(Math.floor(raw), 50);
 }

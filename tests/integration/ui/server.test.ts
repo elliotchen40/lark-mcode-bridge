@@ -47,7 +47,7 @@ function stubSupervisor(): UiSupervisor {
     list: () =>
       [...online.keys()].map((p) => ({
         profile: p,
-        agentKind: 'claude' as const,
+        agentKind: 'mcode' as const,
         online: true,
         pid: process.pid,
         startedAt: new Date().toISOString(),
@@ -84,13 +84,13 @@ beforeEach(async () => {
   configPath = join(rootDir, 'config.json');
   await mkdir(join(rootDir, 'profiles', 'claude'), { recursive: true });
   await saveRootConfig(
-    createRootConfig('claude', createDefaultProfileConfig({ agentKind: 'claude', accounts: { app } })),
+    createRootConfig('claude', createDefaultProfileConfig({ agentKind: 'mcode', accounts: { app } })),
     configPath,
   );
   // second profile 'work' on disk (offline)
   const rc = (await loadRootConfig(configPath))!;
   await mkdir(join(rootDir, 'profiles', 'work'), { recursive: true });
-  rc.profiles.work = createDefaultProfileConfig({ agentKind: 'claude', accounts: { app: { ...app, id: 'cli_work' } } });
+  rc.profiles.work = createDefaultProfileConfig({ agentKind: 'mcode', accounts: { app: { ...app, id: 'cli_work' } } });
   await saveRootConfig(rc, configPath);
   await writeActiveProfile(rootDir, 'claude');
 

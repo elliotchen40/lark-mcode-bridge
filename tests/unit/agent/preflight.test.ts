@@ -24,18 +24,18 @@ describe('agent preflight diagnostics', () => {
 
     await expect(
       checkAgentVersion({
-        agentId: 'codex',
-        agentName: 'Codex CLI',
-        command: 'codex',
-        binaryPath: '/virtual/codex',
+        agentId: 'mcode',
+        agentName: 'MiniMax Code',
+        command: 'mcode',
+        binaryPath: '/virtual/mcode',
       }),
     ).rejects.toMatchObject({
       diagnostic: {
         code: 'agent-version-check-signaled',
-        agentId: 'codex',
-        agentName: 'Codex CLI',
-        command: 'codex',
-        binaryPath: '/virtual/codex',
+        agentId: 'mcode',
+        agentName: 'MiniMax Code',
+        command: 'mcode',
+        binaryPath: '/virtual/mcode',
         args: ['--version'],
         exitCode: null,
         signal: 'SIGTERM',
@@ -46,10 +46,10 @@ describe('agent preflight diagnostics', () => {
   it('renders a concise user-facing message for signaled version checks', () => {
     const err = new AgentPreflightError({
       code: 'agent-version-check-signaled',
-      agentId: 'codex',
-      agentName: 'Codex CLI',
-      command: 'codex',
-      binaryPath: '/opt/homebrew/bin/codex',
+      agentId: 'mcode',
+      agentName: 'MiniMax Code',
+      command: 'mcode',
+      binaryPath: '/opt/homebrew/bin/mcode',
       args: ['--version'],
       exitCode: null,
       signal: 'SIGKILL',
@@ -57,12 +57,12 @@ describe('agent preflight diagnostics', () => {
 
     expect(formatAgentPreflightError(err)).toBe(
       [
-        '✗ 本地 Codex CLI 不可用：执行 `codex --version` 时被系统终止（SIGKILL）。',
+        '✗ 本地 MiniMax Code 不可用：执行 `mcode --version` 时被系统终止（SIGKILL）。',
         '',
         '请先在终端确认：',
-        '  codex --version',
+        '  mcode --version',
         '',
-        '修复本地 Codex CLI 后，再重新运行 bridge。',
+        '修复本地 MiniMax Code 后，再重新运行 bridge。',
         '错误码：agent-version-check-signaled',
       ].join('\n'),
     );
@@ -74,9 +74,9 @@ describe('agent preflight diagnostics', () => {
 
     await expect(
       checkAgentVersion({
-        agentId: 'codex',
-        agentName: 'Codex CLI',
-        command: 'codex',
+        agentId: 'mcode',
+        agentName: 'MiniMax Code',
+        command: 'mcode',
         binaryPath: process.execPath,
         args: ['-e', 'process.stderr.write("boom\\n"); process.exit(42);'],
       }),
@@ -90,24 +90,24 @@ describe('agent preflight diagnostics', () => {
 
     await expect(
       checkAgentVersion({
-        agentId: 'claude',
-        agentName: 'Claude Code',
-        command: 'claude',
+        agentId: 'mcode',
+        agentName: 'MiniMax Code',
+        command: 'mcode',
         binaryPath: process.execPath,
         args: ['-e', 'process.exit(0);'],
       }),
     ).rejects.toMatchObject({
       diagnostic: {
         code: 'agent-version-check-empty-output',
-        agentId: 'claude',
+        agentId: 'mcode',
       },
     });
 
     await expect(
       checkAgentVersion({
-        agentId: 'claude',
-        agentName: 'Claude Code',
-        command: 'claude',
+        agentId: 'mcode',
+        agentName: 'MiniMax Code',
+        command: 'mcode',
         binaryPath: missing,
       }),
     ).rejects.toMatchObject({
@@ -120,23 +120,23 @@ describe('agent preflight diagnostics', () => {
 
   it('renders concise messages for each diagnostic category', () => {
     const cases = [
-      ['agent-binary-not-found', '✗ 未找到本地 Codex CLI。'],
-      ['agent-binary-not-executable', '✗ 本地 Codex CLI 不可执行。'],
-      ['agent-binary-resolve-failed', '✗ 本地 Codex CLI 路径解析失败。'],
-      ['agent-binary-not-readable', '✗ 本地 Codex CLI 二进制不可读取。'],
-      ['agent-version-check-spawn-failed', '✗ 本地 Codex CLI 不可用：无法执行 `codex --version`。'],
-      ['agent-version-check-timeout', '✗ 本地 Codex CLI 不可用：`codex --version` 超时未返回。'],
-      ['agent-version-check-nonzero-exit', '✗ 本地 Codex CLI 不可用：`codex --version` 退出码为 42。'],
-      ['agent-version-check-empty-output', '✗ 本地 Codex CLI 不可用：`codex --version` 没有返回版本信息。'],
+      ['agent-binary-not-found', '✗ 未找到本地 MiniMax Code。'],
+      ['agent-binary-not-executable', '✗ 本地 MiniMax Code 不可执行。'],
+      ['agent-binary-resolve-failed', '✗ 本地 MiniMax Code 路径解析失败。'],
+      ['agent-binary-not-readable', '✗ 本地 MiniMax Code 二进制不可读取。'],
+      ['agent-version-check-spawn-failed', '✗ 本地 MiniMax Code 不可用：无法执行 `mcode --version`。'],
+      ['agent-version-check-timeout', '✗ 本地 MiniMax Code 不可用：`mcode --version` 超时未返回。'],
+      ['agent-version-check-nonzero-exit', '✗ 本地 MiniMax Code 不可用：`mcode --version` 退出码为 42。'],
+      ['agent-version-check-empty-output', '✗ 本地 MiniMax Code 不可用：`mcode --version` 没有返回版本信息。'],
     ] as const;
 
     for (const [code, firstLine] of cases) {
       const err = new AgentPreflightError({
         code,
-        agentId: 'codex',
-        agentName: 'Codex CLI',
-        command: 'codex',
-        binaryPath: '/opt/homebrew/bin/codex',
+        agentId: 'mcode',
+        agentName: 'MiniMax Code',
+        command: 'mcode',
+        binaryPath: '/opt/homebrew/bin/mcode',
         args: ['--version'],
         exitCode: 42,
         signal: 'SIGKILL',

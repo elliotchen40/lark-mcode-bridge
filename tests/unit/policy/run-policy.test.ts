@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { claudeCapability, codexCapability } from '../../../src/agent/capability';
+import { mcodeCapability } from '../../../src/agent/capability';
 import type { AccessMode } from '../../../src/config/permissions';
 import { createDefaultProfileConfig, type ProfileConfig } from '../../../src/config/profile-schema';
 import {
@@ -37,12 +37,12 @@ describe('run policy', () => {
   });
 
   it.each([
-    ['full', 'danger-full-access', 'bypassPermissions'],
-    ['workspace', 'workspace-write', 'acceptEdits'],
-    ['read-only', 'read-only', 'plan'],
+    ['full', 'full'],
+    ['workspace', 'smart'],
+    ['read-only', 'off'],
   ] as const)(
-    'maps %s access to Codex sandbox and Claude permission mode',
-    (accessMode, sandbox, permissionMode) => {
+    'maps %s access to the mcode %s policy',
+    (accessMode, permission) => {
       const result = evaluateRunPolicy(
         baseInput({
           profileConfig: profile({
@@ -57,8 +57,7 @@ describe('run policy', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error('expected run policy to allow');
       expect(result.accessMode).toBe(accessMode);
-      expect(result.sandbox).toBe(sandbox);
-      expect(result.permissionMode).toBe(permissionMode);
+      expect(result.permission).toBe(permission);
     },
   );
 
@@ -66,13 +65,11 @@ describe('run policy', () => {
     const result = evaluateRunPolicy({
       ...baseInput({
         profileConfig: profile({
-          agentKind: 'codex',
           permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
         }),
       }),
-      capability: codexCapability(
+      capability: mcodeCapability(
         profile({
-          agentKind: 'codex',
           permissions: { defaultAccess: 'read-only', maxAccess: 'read-only' },
         }),
       ),
@@ -81,8 +78,7 @@ describe('run policy', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected run policy to allow');
     expect(result.accessMode).toBe('read-only');
-    expect(result.sandbox).toBe('read-only');
-    expect(result.permissionMode).toBe('plan');
+    expect(result.permission).toBe('off');
   });
 
   it('returns an expiry and a stable policy fingerprint for accepted runs', () => {
@@ -167,7 +163,7 @@ function baseInput(overrides: Partial<RunPolicyInput> = {}): RunPolicyInput {
     requestedCwd: '/repo/project',
     cwdRealpath: '/repo/project',
     access: { ok: true, reason: 'allowed-user' },
-    capability: claudeCapability(profileConfig),
+    capability: mcodeCapability(profileConfig),
     profileConfig,
     now: 1000,
     ...overrides,
@@ -175,7 +171,6 @@ function baseInput(overrides: Partial<RunPolicyInput> = {}): RunPolicyInput {
 }
 
 function profile(options: {
-  agentKind?: 'claude' | 'codex';
   permissions?: {
     defaultAccess: AccessMode;
     maxAccess: AccessMode;
@@ -183,7 +178,7 @@ function profile(options: {
   attachments?: Partial<ProfileConfig['attachments']>;
 } = {}) {
   const cfg = createDefaultProfileConfig({
-    agentKind: options.agentKind ?? 'claude',
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',
@@ -191,9 +186,6 @@ function profile(options: {
         tenant: 'feishu',
       },
     },
-    ...(options.agentKind === 'codex'
-      ? { codex: { binaryPath: '/usr/local/bin/codex' } }
-      : {}),
     permissions: options.permissions,
   });
   return {

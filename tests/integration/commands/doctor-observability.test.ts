@@ -33,7 +33,7 @@ describe('/doctor run observability', () => {
     );
     expect(started).toMatchObject({
       profile: 'claude',
-      agent: 'claude',
+      agent: 'mcode',
       source: 'doctor',
       stage: 'agent-probe',
     });
@@ -65,10 +65,10 @@ async function createHarness(): Promise<{
     events: [[{ type: 'text', delta: 'OK' }, { type: 'done', terminationReason: 'normal' }]],
   });
   const profileConfig = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: { app: { id: 'app-id', secret: 'secret', tenant: 'feishu' } },
     access: { admins: ['ou-admin'] },
-    sandbox: { defaultMode: 'read-only', maxMode: 'workspace-write' },
+    permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
   });
   profileConfig.workspaces.default = tmp.workspace;
   const controls = {

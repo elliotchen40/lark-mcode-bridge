@@ -12,7 +12,7 @@ import { resolveAppPaths } from './app-paths';
 import {
   createDefaultProfileConfig,
   type AgentKind,
-  type CodexConfig,
+  type McodeConfig,
   type RootConfig,
 } from './profile-schema';
 import { markPermissionDefaultsMigration, saveRootConfig } from './profile-store';
@@ -26,7 +26,7 @@ export interface MigrateV2Options {
   configFile?: string;
   workspace?: string;
   agentKind?: AgentKind;
-  codex?: CodexConfig;
+  mcode?: McodeConfig;
 }
 
 export interface MigrateV2Result {
@@ -119,7 +119,7 @@ export async function migrateV1ToV2(opts: MigrateV2Options = {}): Promise<Migrat
   const legacyDefaultWorkspace = opts.workspace
     ? await resolveBootstrapWorkspace(opts.workspace)
     : await collectLegacyDefaultWorkspace(paths.rootDir);
-  const agentKind = opts.agentKind ?? 'claude';
+  const agentKind: AgentKind = 'mcode';
   const profileConfig = createDefaultProfileConfig({
     agentKind,
     accounts: { app },
@@ -128,7 +128,7 @@ export async function migrateV1ToV2(opts: MigrateV2Options = {}): Promise<Migrat
       ...legacy.preferences?.access,
       requireMentionInGroup: legacy.preferences?.requireMentionInGroup,
     },
-    ...(agentKind === 'codex' && opts.codex ? { codex: opts.codex } : {}),
+    ...(opts.mcode ? { mcode: opts.mcode } : {}),
   });
   if (legacyDefaultWorkspace) {
     profileConfig.workspaces = {
@@ -200,7 +200,9 @@ function activeProcessFromRegistryEntry(entry: RegistryEntry): ActiveBridgeMigra
   if (typeof entry.appId === 'string') active.appId = entry.appId;
   if (typeof entry.tenant === 'string') active.tenant = entry.tenant;
   if (typeof entry.profileName === 'string') active.profileName = entry.profileName;
-  if (entry.agentKind === 'claude' || entry.agentKind === 'codex') active.agentKind = entry.agentKind;
+  if (entry.agentKind === 'mcode' || entry.agentKind === 'claude' || entry.agentKind === 'codex') {
+    active.agentKind = 'mcode';
+  }
   if (typeof entry.configPath === 'string') active.configPath = entry.configPath;
   if (typeof entry.startedAt === 'string') active.startedAt = entry.startedAt;
   if (typeof entry.version === 'string') active.version = entry.version;

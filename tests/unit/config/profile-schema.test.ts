@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  accessToClaudePermissionMode,
+  accessToMcodePolicy,
   clampAccess,
 } from '../../../src/config/permissions';
 import {
@@ -16,58 +16,39 @@ const app = {
 };
 
 describe('profile schema', () => {
-  it('defaults Claude sandbox to danger-full-access through canonical permissions', () => {
+  it('defaults mcode permissions to full/full without any sandbox or agent block', () => {
     const cfg = createDefaultProfileConfig({
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
     });
 
     expect(cfg.schemaVersion).toBe(2);
-    expect(cfg.agentKind).toBe('claude');
+    expect(cfg.agentKind).toBe('mcode');
     expect(cfg.permissions).toMatchObject({
       defaultAccess: 'full',
       maxAccess: 'full',
     });
-    expect(cfg.sandbox).toMatchObject({
-      default: 'danger-full-access',
-      max: 'danger-full-access',
-      defaultMode: 'danger-full-access',
-      maxMode: 'danger-full-access',
-    });
-  });
-
-  it('defaults Codex sandbox to danger-full-access to match Claude bridge local tool access', () => {
-    const cfg = createDefaultProfileConfig({
-      agentKind: 'codex',
-      accounts: { app },
-      codex: { binaryPath: '/usr/local/bin/codex' },
-    });
-
-    expect(cfg.sandbox).toMatchObject({
-      default: 'danger-full-access',
-      max: 'danger-full-access',
-      defaultMode: 'danger-full-access',
-      maxMode: 'danger-full-access',
-    });
+    expect(cfg).not.toHaveProperty('sandbox');
+    expect(cfg.mcode).toBeUndefined();
   });
 
   it('defaults deployment mode to personal and parses team', () => {
-    const fresh = createDefaultProfileConfig({ agentKind: 'claude', accounts: { app } });
+    const fresh = createDefaultProfileConfig({ agentKind: 'mcode', accounts: { app } });
     expect(fresh.mode).toBe('personal');
 
-    const team = createDefaultProfileConfig({ agentKind: 'claude', mode: 'team', accounts: { app } });
+    const team = createDefaultProfileConfig({ agentKind: 'mcode', mode: 'team', accounts: { app } });
     expect(team.mode).toBe('team');
 
     // Unknown / missing values normalize to personal (safe default for upgrades).
     const legacy = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
     });
     expect(legacy.mode).toBe('personal');
     const bogus = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       mode: 'nonsense',
       accounts: { app },
     });
@@ -86,34 +67,34 @@ describe('profile schema', () => {
     ).toBe('bot-only');
   });
 
-  it('requires codex configuration when agentKind is codex', () => {
+  it('rejects a retired agentKind and accepts only mcode', () => {
     expect(() =>
       normalizeProfileConfig({
         schemaVersion: 2,
         agentKind: 'codex',
         accounts: { app },
       }),
-    ).toThrow(/codex/i);
-  });
-
-  it('rejects sandbox defaults that exceed max capability as a permission error', () => {
+    ).toThrow(/agentKind must be mcode/);
     expect(() =>
       normalizeProfileConfig({
         schemaVersion: 2,
         agentKind: 'claude',
         accounts: { app },
-        sandbox: {
-          defaultMode: 'workspace-write',
-          maxMode: 'read-only',
-        },
       }),
-    ).toThrow(/permission/i);
+    ).toThrow(/agentKind must be mcode/);
+    expect(
+      normalizeProfileConfig({
+        schemaVersion: 2,
+        agentKind: 'mcode',
+        accounts: { app },
+      }).agentKind,
+    ).toBe('mcode');
   });
 
   it('keeps access at profile top level without legacy open semantics', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
       preferences: {
         messageReply: 'markdown',
@@ -138,7 +119,7 @@ describe('profile schema', () => {
   it('drops invalid legacy message reply values instead of blocking config load', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
       preferences: {
         messageReply: 'plain-text',
@@ -153,7 +134,7 @@ describe('profile schema', () => {
 
   it('normalizes workspaces to a default working directory only', () => {
     const cfg = createDefaultProfileConfig({
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
     });
 
@@ -162,7 +143,7 @@ describe('profile schema', () => {
 
   it('defaults lark-cli identity to app-only without legacy global source fields', () => {
     const cfg = createDefaultProfileConfig({
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
     });
 
@@ -174,7 +155,7 @@ describe('profile schema', () => {
   it('normalizes lark-cli user identity import state without preserving invalid fields', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
       larkCli: {
         identityPreset: 'user-default',
@@ -207,7 +188,7 @@ describe('profile schema', () => {
   it('tolerates legacy workspace root fields without preserving them', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
       workspaces: {
         default: '/repo',
@@ -224,7 +205,7 @@ describe('profile schema', () => {
   it('drops comment config while tolerating legacy comment fields', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
       comments: {
         enabled: false,
@@ -259,7 +240,7 @@ describe('profile schema', () => {
 
   it('does not enable comment rate limits by default', () => {
     const cfg = createDefaultProfileConfig({
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
     });
 
@@ -268,7 +249,7 @@ describe('profile schema', () => {
 
   it('seeds attachment limits from the runtime policy', () => {
     const cfg = createDefaultProfileConfig({
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
     });
 
@@ -280,114 +261,30 @@ describe('profile schema', () => {
     });
   });
 
-  it('keeps legacy Codex binary metadata and user-home defaults without keeping public flags', () => {
+  it('keeps only the pinned mcode binary path and drops legacy binary metadata', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'codex',
+      agentKind: 'mcode',
       accounts: { app },
-      codex: {
-        binaryPath: '/usr/local/bin/codex',
-        realpath: '/opt/codex/bin/codex',
-        version: 'codex 1.2.3',
+      mcode: {
+        binaryPath: '/usr/local/bin/mcode',
+        realpath: '/opt/mcode/bin/mcode',
+        version: 'mcode 1.2.3',
         sha256: 'abc123',
-        owner: 501,
-        mode: 0o755,
-        flags: ['--sandbox', 'workspace-write'],
-      },
+        flags: ['--dangerously-skip-permissions'],
+      } as never,
     });
 
-    expect(cfg.codex).toMatchObject({
-      binaryPath: '/usr/local/bin/codex',
-      realpath: '/opt/codex/bin/codex',
-      version: 'codex 1.2.3',
-      sha256: 'abc123',
-      owner: 501,
-      mode: 0o755,
-      inheritCodexHome: true,
-      ignoreUserConfig: false,
-      ignoreRules: true,
-    });
-    expect(cfg.codex).not.toHaveProperty('flags');
-  });
-
-  it('preserves explicit Codex home isolation when configured', () => {
-    const cfg = normalizeProfileConfig({
-      schemaVersion: 2,
-      agentKind: 'codex',
-      accounts: { app },
-      codex: {
-        binaryPath: '/usr/local/bin/codex',
-        inheritCodexHome: false,
-      },
-    });
-
-    expect(cfg.codex?.inheritCodexHome).toBe(false);
-  });
-
-  it('defaults Claude permissions to full/full and derives legacy sandbox for runtime compatibility', () => {
-    const cfg = createDefaultProfileConfig({
-      agentKind: 'claude',
-      accounts: { app },
-    });
-
-    expect(cfg.permissions).toMatchObject({
-      defaultAccess: 'full',
-      maxAccess: 'full',
-    });
-    expect(cfg.sandbox).toMatchObject({
-      default: 'danger-full-access',
-      max: 'danger-full-access',
-      defaultMode: 'danger-full-access',
-      maxMode: 'danger-full-access',
-    });
-  });
-
-  it('defaults Codex permissions to full/full and derives danger-full-access for Codex runtime', () => {
-    const cfg = createDefaultProfileConfig({
-      agentKind: 'codex',
-      accounts: { app },
-      codex: { binaryPath: '/usr/local/bin/codex' },
-    });
-
-    expect(cfg.permissions).toMatchObject({
-      defaultAccess: 'full',
-      maxAccess: 'full',
-    });
-    expect(cfg.sandbox).toMatchObject({
-      default: 'danger-full-access',
-      max: 'danger-full-access',
-      defaultMode: 'danger-full-access',
-      maxMode: 'danger-full-access',
-    });
-  });
-
-  it('maps legacy sandbox aliases into canonical permissions when permissions are absent', () => {
-    const cfg = normalizeProfileConfig({
-      schemaVersion: 2,
-      agentKind: 'claude',
-      accounts: { app },
-      sandbox: {
-        defaultMode: 'read-only',
-        maxMode: 'workspace-write',
-      },
-    });
-
-    expect(cfg.permissions).toMatchObject({
-      defaultAccess: 'read-only',
-      maxAccess: 'workspace',
-    });
-    expect(cfg.sandbox).toMatchObject({
-      defaultMode: 'read-only',
-      maxMode: 'workspace-write',
-    });
+    expect(cfg.mcode).toEqual({ binaryPath: '/usr/local/bin/mcode' });
+    expect(cfg.mcode).not.toHaveProperty('flags');
   });
 
   it('lets canonical permissions win over stale legacy sandbox fields', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'codex',
+      agentKind: 'mcode',
       accounts: { app },
-      codex: { binaryPath: '/usr/local/bin/codex' },
+      mcode: { binaryPath: '/usr/local/bin/mcode' },
       permissions: {
         defaultAccess: 'workspace',
         maxAccess: 'workspace',
@@ -396,23 +293,20 @@ describe('profile schema', () => {
         defaultMode: 'danger-full-access',
         maxMode: 'danger-full-access',
       },
-    });
+    } as never);
 
     expect(cfg.permissions).toMatchObject({
       defaultAccess: 'workspace',
       maxAccess: 'workspace',
     });
-    expect(cfg.sandbox).toMatchObject({
-      defaultMode: 'workspace-write',
-      maxMode: 'workspace-write',
-    });
+    expect(cfg).not.toHaveProperty('sandbox');
   });
 
   it('rejects permission defaults that exceed max access', () => {
     expect(() =>
       normalizeProfileConfig({
         schemaVersion: 2,
-        agentKind: 'claude',
+        agentKind: 'mcode',
         accounts: { app },
         permissions: {
           defaultAccess: 'full',
@@ -422,21 +316,21 @@ describe('profile schema', () => {
     ).toThrow(/permission/i);
   });
 
-  it('uses Claude permissionMode override when deriving Claude runtime permissions', () => {
+  it('uses the mcode policy override when deriving the runtime policy', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
       permissions: {
         defaultAccess: 'full',
         maxAccess: 'full',
-        claude: {
-          permissionMode: 'default',
+        mcode: {
+          policy: 'off',
         },
       },
     });
 
-    expect(accessToClaudePermissionMode('full', cfg.permissions)).toBe('default');
+    expect(accessToMcodePolicy('full', cfg.permissions)).toBe('off');
   });
 
   it('clamps access by both profile and capability maximums', () => {
@@ -445,123 +339,88 @@ describe('profile schema', () => {
     expect(clampAccess('read-only', 'full', 'full')).toBe('read-only');
   });
 
-  it('keeps legacy sandbox access when canonical permissions only set Claude override', () => {
+  it('keeps default access when canonical permissions only set the mcode override', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
-      sandbox: {
-        defaultMode: 'read-only',
-        maxMode: 'read-only',
-      },
       permissions: {
-        claude: {
-          permissionMode: 'plan',
+        mcode: {
+          policy: 'smart',
         },
       },
     });
 
     expect(cfg.permissions).toMatchObject({
-      defaultAccess: 'read-only',
-      maxAccess: 'read-only',
-      claude: {
-        permissionMode: 'plan',
+      defaultAccess: 'full',
+      maxAccess: 'full',
+      mcode: {
+        policy: 'smart',
       },
     });
   });
 
-  it('rejects Claude permission overrides wider than max access', () => {
+  it('rejects mcode policy overrides wider than max access', () => {
     expect(() =>
       normalizeProfileConfig({
         schemaVersion: 2,
-        agentKind: 'claude',
+        agentKind: 'mcode',
         accounts: { app },
         permissions: {
           maxAccess: 'read-only',
-          claude: {
-            permissionMode: 'bypassPermissions',
+          mcode: {
+            policy: 'full',
           },
         },
       }),
     ).toThrow(/permission/i);
   });
 
-  it('does not let Claude override exceed the current access at runtime mapping time', () => {
+  it('does not let the mcode policy override exceed the current access at runtime mapping time', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
       permissions: {
         defaultAccess: 'read-only',
         maxAccess: 'full',
-        claude: {
-          permissionMode: 'bypassPermissions',
+        mcode: {
+          policy: 'full',
         },
       },
     });
 
-    expect(accessToClaudePermissionMode('read-only', cfg.permissions)).toBe('plan');
+    expect(accessToMcodePolicy('read-only', cfg.permissions)).toBe('off');
   });
 
   it('rejects array-shaped permissions config', () => {
     expect(() =>
       normalizeProfileConfig({
         schemaVersion: 2,
-        agentKind: 'claude',
+        agentKind: 'mcode',
         accounts: { app },
         permissions: [],
       }),
     ).toThrow(/permission/i);
   });
 
-  it('rejects array-shaped sandbox config', () => {
+  it('rejects array-shaped mcode permissions config', () => {
     expect(() =>
       normalizeProfileConfig({
         schemaVersion: 2,
-        agentKind: 'claude',
-        accounts: { app },
-        sandbox: [],
-      }),
-    ).toThrow(/sandbox/i);
-  });
-
-  it('rejects array-shaped Claude permissions config', () => {
-    expect(() =>
-      normalizeProfileConfig({
-        schemaVersion: 2,
-        agentKind: 'claude',
+        agentKind: 'mcode',
         accounts: { app },
         permissions: {
-          claude: [],
+          mcode: [],
         },
       }),
     ).toThrow(/permission/i);
   });
 
-  it('does not raise legacy default access when only canonical max access is explicit', () => {
-    const cfg = normalizeProfileConfig({
-      schemaVersion: 2,
-      agentKind: 'claude',
-      accounts: { app },
-      sandbox: {
-        defaultMode: 'read-only',
-        maxMode: 'danger-full-access',
-      },
-      permissions: {
-        maxAccess: 'workspace',
-      },
-    });
-
-    expect(cfg.permissions).toMatchObject({
-      defaultAccess: 'read-only',
-      maxAccess: 'workspace',
-    });
-  });
-
   it('clamps default access from full defaults when only canonical max access is explicit', () => {
     const cfg = normalizeProfileConfig({
       schemaVersion: 2,
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: { app },
       permissions: {
         maxAccess: 'workspace',

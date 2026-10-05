@@ -6,7 +6,7 @@ import { RunExecutor } from '../../../src/runtime/run-executor';
 import { FakeAgentAdapter } from '../../helpers/fake-agent';
 
 describe('RunExecutor policy runtime options', () => {
-  it('passes policy sandbox and permission mode into each agent run', async () => {
+  it('passes the policy access mode and mcode permission into each agent run', async () => {
     const agent = new FakeAgentAdapter({
       events: [{ type: 'done', terminationReason: 'normal' }],
     });
@@ -22,15 +22,14 @@ describe('RunExecutor policy runtime options', () => {
     const execution = await executor.submit({
       scopeId: 'scope-policy',
       policy: policy({
-        sandbox: 'workspace-write',
-        permissionMode: 'acceptEdits',
+        accessMode: 'read-only',
+        permission: 'off',
       }),
     });
 
     expect(agent.runOptions[0]).toMatchObject({
       runId: 'run-policy',
-      sandbox: 'workspace-write',
-      permissionMode: 'acceptEdits',
+      permission: 'off',
     });
 
     await collect(execution.subscribe());
@@ -44,8 +43,7 @@ function policy(overrides: Partial<RunPolicyAllow> = {}): RunPolicyAllow {
     requestedCwd: '/tmp/repo',
     cwdRealpath: '/tmp/repo',
     accessMode: 'workspace',
-    sandbox: 'workspace-write',
-    permissionMode: 'acceptEdits',
+    permission: 'smart',
     access: { ok: true, reason: 'allowed-user' },
     attachments: [],
     policyFingerprint: 'fp',

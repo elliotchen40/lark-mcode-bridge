@@ -1,6 +1,6 @@
 # lark-channel-bridge
 
-A lightweight bot that bridges Feishu / Lark messenger with your local Claude Code or Codex CLI. Run one command, scan a QR code to bind a PersonalAgent app, and talk to your local coding agent from chat.
+A lightweight bot that bridges Feishu / Lark messenger with your local MiniMax Code (`mcode`) CLI. Run one command, scan a QR code to bind a PersonalAgent app, and talk to your local coding agent from chat.
 
 [中文 README](./README.zh.md)
 
@@ -8,7 +8,7 @@ For a product walkthrough, see the [Feishu document](https://larkcommunity.feish
 
 ## What it does
 
-- Forwards Feishu / Lark messages to local Claude Code or Codex CLI. Send a DM directly, or `@bot` in a group.
+- Forwards Feishu / Lark messages to the local MiniMax Code (`mcode`) CLI. Send a DM directly, or `@bot` in a group.
 - **Streaming card**: text replies and tool calls update on one Lark card in real time.
 - **COT process messages**: optionally send a process message with agent progress text and tool calls, then send the final answer separately.
 - **Session continuity**: each chat, topic, or document comment thread keeps its own session.
@@ -20,9 +20,8 @@ For a product walkthrough, see the [Feishu document](https://larkcommunity.feish
 ## Prerequisites
 
 - Node.js **>= 20.12.0**
-- At least one local agent installed and logged in:
-  - Claude Code: `claude`, see https://docs.anthropic.com/en/docs/claude-code/quickstart
-  - Codex CLI: `codex`, see https://developers.openai.com/codex/cli
+- The local agent installed and logged in:
+  - MiniMax Code: `mcode` (npm package `@minimax-ai/code`), run `mcode login` to sign in
 - A Feishu / Lark **PersonalAgent** app. The first-run QR wizard can create and bind one for you.
 
 ## Install
@@ -88,20 +87,19 @@ Platform mapping:
 
 Daemon logs are under `~/.lark-channel/profiles/<profile>/logs/daemon/`.
 
-### Multiple profiles: Claude and Codex
+### Multiple profiles
 
-By default, the bridge starts with the currently selected profile. Use `profile use <name>` to change it. Each profile keeps its own app credentials, sessions, working directories, and logs. Create multiple profiles only when you need to connect multiple PersonalAgent apps, or run Claude and Codex as separate bots:
+By default, the bridge starts with the currently selected profile. Use `profile use <name>` to change it. Each profile keeps its own app credentials, sessions, working directories, and logs. Create multiple profiles only when you need to connect multiple PersonalAgent apps:
 
 ```bash
-lark-channel-bridge start --profile claude --agent claude
-lark-channel-bridge start --profile codex --agent codex
+lark-channel-bridge start --profile default --agent mcode
 ```
 
-For example, to restart only the Codex bot:
+For example, to restart only the second bot:
 
 ```bash
-lark-channel-bridge restart --profile codex
-lark-channel-bridge status --profile codex
+lark-channel-bridge restart --profile second
+lark-channel-bridge status --profile second
 ```
 
 ## Commands
@@ -109,18 +107,18 @@ lark-channel-bridge status --profile codex
 ### Host CLI
 
 ```text
-lark-channel-bridge run [--profile <name>] [--agent claude|codex] [--workspace <path>] [-c <config>]
-lark-channel-bridge migrate [--profile <name>] [--agent claude|codex]
+lark-channel-bridge run [--profile <name>] [--agent mcode] [--workspace <path>] [-c <config>]
+lark-channel-bridge migrate [--profile <name>] [--agent mcode]
 lark-channel-bridge ps
 lark-channel-bridge kill <id|#>
 lark-channel-bridge --help
 ```
 
-`profile use <name>` changes the profile used by later default starts. Use these profile management commands when running separate Claude / Codex bots, connecting multiple PersonalAgent apps, or doing scripted deployment:
+`profile use <name>` changes the profile used by later default starts. Use these profile management commands when connecting multiple PersonalAgent apps, or doing scripted deployment:
 
 ```bash
-lark-channel-bridge profile create claude --agent claude
-lark-channel-bridge profile create codex --agent codex
+lark-channel-bridge profile create default --agent mcode
+lark-channel-bridge profile create second --agent mcode
 lark-channel-bridge profile list
 lark-channel-bridge profile use <name>
 lark-channel-bridge profile remove <name>
@@ -186,7 +184,7 @@ This is a profile-field snippet. Do not replace the whole `config.json` with it;
 ```json
 {
   "workspaces": {
-    "default": "/Users/me/.lark-channel-workspaces/claude/default"
+    "default": "/Users/me/.lark-channel-workspaces/default/default"
   }
 }
 ```
@@ -210,7 +208,7 @@ This is a profile-field snippet. Do not replace the whole `config.json` with it;
 
 Mode mapping:
 
-| Bridge access | Claude permission mode | Codex mode |
+| Bridge access | mcode permission policy |
 |---|---|---|
 | `full` | `bypassPermissions` | `danger-full-access` |
 | `workspace` | `acceptEdits` | `workspace-write` |
@@ -278,8 +276,8 @@ If you'd rather not do it inside Feishu, `/invite` and `/config` write the match
 {
   "schemaVersion": 2,
   "profiles": {
-    "claude": {
-      "agentKind": "claude",
+    "default": {
+      "agentKind": "mcode",
       "access": {
         "allowedUsers": ["ou_xxxxxxxxxxxxx"],
         "allowedChats": ["oc_xxxxxxxxxxxxx"],
@@ -305,7 +303,7 @@ Cloud-doc comments do not need a separate workspace binding or document allowlis
 
 ## FAQ
 
-**The bot stays silent or the local CLI never replies.** Usually the local `claude` or `codex` CLI is not logged in, or the current session points to a working directory that no longer exists. Send `/status` to inspect; `/new` often fixes it by starting a fresh session.
+**The bot stays silent or the local CLI never replies.** Usually the local `mcode` CLI is not logged in, or the current session points to a working directory that no longer exists. Send `/status` to inspect; `/new` often fixes it by starting a fresh session.
 
 **The agent subprocess looks frozen (card stuck on the last frame).** The bridge supports an idle watchdog: if the agent emits nothing for N minutes, the process is killed and the card is annotated with the auto-termination reason. Disabled by default. Enable with `/config` globally, or `/timeout 10` for the current session; `/timeout off` disables it for the session; `/timeout default` clears the session override.
 

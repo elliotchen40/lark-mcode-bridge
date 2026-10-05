@@ -42,13 +42,13 @@ beforeEach(async () => {
   // claude (cli_a), work (cli_b), dup (cli_b — same app as work).
   await mkdir(join(root, 'profiles', 'claude'), { recursive: true });
   await saveRootConfig(
-    createRootConfig('claude', createDefaultProfileConfig({ agentKind: 'claude', accounts: { app: app('cli_a') } })),
+    createRootConfig('claude', createDefaultProfileConfig({ agentKind: 'mcode', accounts: { app: app('cli_a') } })),
     configPath,
   );
   const rc = (await loadRootConfig(configPath))!;
   for (const [name, id] of [['work', 'cli_b'], ['dup', 'cli_b']] as const) {
     await mkdir(join(root, 'profiles', name), { recursive: true });
-    rc.profiles[name] = createDefaultProfileConfig({ agentKind: 'claude', accounts: { app: app(id) } });
+    rc.profiles[name] = createDefaultProfileConfig({ agentKind: 'mcode', accounts: { app: app(id) } });
   }
   await saveRootConfig(rc, configPath);
 

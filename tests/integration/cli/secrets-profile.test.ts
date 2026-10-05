@@ -11,7 +11,6 @@ import {
 } from '../../../src/config/keystore';
 import {
   createDefaultProfileConfig,
-  type AgentKind,
   type RootConfig,
 } from '../../../src/config/profile-schema';
 import { secretKeyForApp } from '../../../src/config/schema';
@@ -113,9 +112,8 @@ describe('profile-aware secrets commands', () => {
 async function writeProfiles(root: string, activeProfile: string, names: string[]): Promise<void> {
   const profiles: RootConfig['profiles'] = {};
   for (const name of names) {
-    const agentKind: AgentKind = name.startsWith('codex') ? 'codex' : 'claude';
     profiles[name] = createDefaultProfileConfig({
-      agentKind,
+      agentKind: 'mcode',
       accounts: {
         app: {
           id: `cli_${name.replace(/[^A-Za-z0-9]/g, '_')}`,
@@ -123,7 +121,6 @@ async function writeProfiles(root: string, activeProfile: string, names: string[
           tenant: 'feishu',
         },
       },
-      ...(agentKind === 'codex' ? { codex: { binaryPath: 'codex' } } : {}),
     });
     await mkdir(join(root, 'profiles', name), { recursive: true });
   }

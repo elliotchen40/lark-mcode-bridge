@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { claudeCapability } from '../../../src/agent/capability';
+import { mcodeCapability } from '../../../src/agent/capability';
 import { ActiveRuns } from '../../../src/bot/active-runs';
 import { startRunFlow } from '../../../src/bot/run-flow';
 import { ProcessPool } from '../../../src/bot/process-pool';
@@ -28,7 +28,7 @@ describe('IM run flow', () => {
       prompt: 'hello',
       attachments: [],
       access: { ok: true, reason: 'allowed-user' },
-      capability: claudeCapability(h.profileConfig),
+      capability: mcodeCapability(h.profileConfig),
       profileConfig: h.profileConfig,
       sessions: h.sessions,
       workspaces: h.workspaces,
@@ -57,7 +57,7 @@ describe('IM run flow', () => {
       prompt: 'hello',
       attachments: [],
       access: { ok: true, reason: 'allowed-user' },
-      capability: claudeCapability(h.profileConfig),
+      capability: mcodeCapability(h.profileConfig),
       profileConfig: h.profileConfig,
       sessions: h.sessions,
       workspaces: h.workspaces,
@@ -86,7 +86,7 @@ describe('IM run flow', () => {
       prompt: 'hello',
       attachments: [],
       access: { ok: true, reason: 'allowed-user' },
-      capability: claudeCapability(h.profileConfig),
+      capability: mcodeCapability(h.profileConfig),
       profileConfig: h.profileConfig,
       sessions: h.sessions,
       workspaces: h.workspaces,
@@ -122,7 +122,7 @@ async function createHarness(options: { defaultWorkspace?: boolean } = {}): Prom
     now: () => 1000,
   });
   const profileConfig = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',

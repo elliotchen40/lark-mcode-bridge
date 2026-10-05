@@ -24,7 +24,7 @@ export interface RunState {
   footer: FooterStatus;
   terminal: Terminal;
   errorMsg?: string;
-  /** Set when terminal === 'idle_timeout' — how long claude was idle before
+  /** Set when terminal === 'idle_timeout' — how long the agent was idle before
    * the watchdog gave up (so the message can say "N 分钟无响应"). */
   idleTimeoutMinutes?: number;
 }
@@ -63,8 +63,26 @@ export function reduce(state: RunState, evt: AgentEvent): RunState {
       };
     }
 
-    case 'final_text':
-      return { ...state, finalText: evt.content };
+    case 'final_text': {
+      // The agent's authoritative answer for the turn.
+      //
+      // Normally the same words already arrived as `text` deltas, so the
+      // rendered blocks already contain them and nothing is appended (that
+      // guard is what keeps the answer from being posted twice). But an agent
+      // may return a final answer with no streamed delta at all — mcode reports
+      // `result.output` even for a turn that streamed nothing, e.g. when the
+      // answer came only from a tool result. Without this, the card would
+      // render "（未返回内容）" and the user would get silence.
+      const hasTextBlock = state.blocks.some((b) => b.kind === 'text');
+      return {
+        ...state,
+        finalText: evt.content,
+        blocks:
+          hasTextBlock || !evt.content
+            ? state.blocks
+            : [...state.blocks, { kind: 'text', content: evt.content, streaming: false }],
+      };
+    }
 
     case 'thinking': {
       return {

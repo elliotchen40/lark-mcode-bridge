@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { claudeCapability, codexCapability } from '../../../src/agent/capability.js';
+import { mcodeCapability } from '../../../src/agent/capability.js';
 import { ActiveRuns } from '../../../src/bot/active-runs.js';
 import { ProcessPool } from '../../../src/bot/process-pool.js';
 import {
@@ -24,8 +24,8 @@ describe('agent-aware run-flow resume', () => {
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
   });
 
-  it('resumes Claude only when scope, agent, cwd, and policy fingerprint match', async () => {
-    const h = await createHarness('claude');
+  it('resumes the mcode session only when scope, agent, cwd, and policy fingerprint match', async () => {
+    const h = await createHarness();
     const first = await start(h);
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('expected initial run');
@@ -33,7 +33,7 @@ describe('agent-aware run-flow resume', () => {
 
     h.catalog.upsertActive({
       scopeId: 'chat-1',
-      agentId: 'claude',
+      agentId: 'mcode',
       cwdRealpath: first.cwdRealpath,
       policyFingerprint: first.policy.policyFingerprint,
       sessionId: 'sess-catalog',
@@ -47,12 +47,11 @@ describe('agent-aware run-flow resume', () => {
     expect(second.resumeFrom).toBe('sess-catalog');
     expect(h.agent.runOptions[1]).toMatchObject({
       sessionId: 'sess-catalog',
-      threadId: undefined,
     });
   });
 
-  it('falls back to legacy Claude sessions when the agent-aware catalog has no match', async () => {
-    const h = await createHarness('claude');
+  it('falls back to legacy SessionStore entries when the agent-aware catalog has no match', async () => {
+    const h = await createHarness();
     const cwdRealpath = await realpath(h.tmp.workspace);
     h.sessions.set('chat-1', 'legacy-session', cwdRealpath);
 
@@ -63,47 +62,18 @@ describe('agent-aware run-flow resume', () => {
     expect(run.resumeFrom).toBe('legacy-session');
     expect(h.agent.runOptions[0]).toMatchObject({
       sessionId: 'legacy-session',
-      threadId: undefined,
-    });
-  });
-
-  it('resumes Codex thread from catalog and ignores legacy Claude SessionStore entries', async () => {
-    const h = await createHarness('codex');
-    const cwdRealpath = await realpath(h.tmp.workspace);
-    h.sessions.set('chat-1', 'legacy-claude-session', cwdRealpath);
-    const probe = await start(h);
-    expect(probe.ok).toBe(true);
-    if (!probe.ok) throw new Error('expected probe run');
-    await collect(probe.execution.subscribe());
-    h.catalog.upsertActive({
-      scopeId: 'chat-1',
-      agentId: 'codex',
-      cwdRealpath: probe.cwdRealpath,
-      policyFingerprint: probe.policy.policyFingerprint,
-      threadId: 'thread-catalog',
-      now: 1000,
-    });
-
-    const resumed = await start(h);
-
-    expect(resumed.ok).toBe(true);
-    if (!resumed.ok) throw new Error('expected resumed run');
-    expect(resumed.resumeFrom).toBe('thread-catalog');
-    expect(h.agent.runOptions[1]).toMatchObject({
-      sessionId: undefined,
-      threadId: 'thread-catalog',
     });
   });
 
   it('does not resume when the policy fingerprint changes', async () => {
-    const h = await createHarness('claude');
+    const h = await createHarness();
     const first = await start(h);
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('expected initial run');
     await collect(first.execution.subscribe());
     h.catalog.upsertActive({
       scopeId: 'chat-1',
-      agentId: 'claude',
+      agentId: 'mcode',
       cwdRealpath: first.cwdRealpath,
       policyFingerprint: 'stale-fingerprint',
       sessionId: 'sess-stale',
@@ -117,64 +87,38 @@ describe('agent-aware run-flow resume', () => {
     expect(second.resumeFrom).toBeUndefined();
     expect(h.agent.runOptions[1]).toMatchObject({
       sessionId: undefined,
-      threadId: undefined,
     });
   });
 
   it('records system session identifiers into the agent-aware catalog', async () => {
-    const claude = await createHarness('claude');
-    const claudeRun = await start(claude);
-    expect(claudeRun.ok).toBe(true);
-    if (!claudeRun.ok) throw new Error('expected claude run');
-    await collect(claudeRun.execution.subscribe());
+    const h = await createHarness();
+    const run = await start(h);
+    expect(run.ok).toBe(true);
+    if (!run.ok) throw new Error('expected mcode run');
+    await collect(run.execution.subscribe());
 
     recordRunSessionEvent({
       scopeId: 'chat-1',
-      sessions: claude.sessions,
-      sessionCatalog: claude.catalog,
-      capability: claudeCapability(claude.profileConfig),
-      policy: claudeRun.policy,
-      event: { type: 'system', sessionId: 'sess-recorded', cwd: claudeRun.cwdRealpath },
+      sessions: h.sessions,
+      sessionCatalog: h.catalog,
+      capability: mcodeCapability(h.profileConfig),
+      policy: run.policy,
+      event: { type: 'system', sessionId: 'sess-recorded', cwd: run.cwdRealpath },
     });
 
     expect(
-      claude.catalog.activeFor({
+      h.catalog.activeFor({
         scopeId: 'chat-1',
-        agentId: 'claude',
-        cwdRealpath: claudeRun.cwdRealpath,
-        policyFingerprint: claudeRun.policy.policyFingerprint,
+        agentId: 'mcode',
+        cwdRealpath: run.cwdRealpath,
+        policyFingerprint: run.policy.policyFingerprint,
       }),
     ).toMatchObject({ sessionId: 'sess-recorded' });
-    expect(claude.sessions.resumeFor('chat-1', claudeRun.cwdRealpath)).toBe('sess-recorded');
-
-    const codex = await createHarness('codex');
-    const codexRun = await start(codex);
-    expect(codexRun.ok).toBe(true);
-    if (!codexRun.ok) throw new Error('expected codex run');
-    await collect(codexRun.execution.subscribe());
-
-    recordRunSessionEvent({
-      scopeId: 'chat-1',
-      sessions: codex.sessions,
-      sessionCatalog: codex.catalog,
-      capability: codexCapability(codex.profileConfig),
-      policy: codexRun.policy,
-      event: { type: 'system', threadId: 'thread-recorded' },
-    });
-
-    expect(
-      codex.catalog.activeFor({
-        scopeId: 'chat-1',
-        agentId: 'codex',
-        cwdRealpath: codexRun.cwdRealpath,
-        policyFingerprint: codexRun.policy.policyFingerprint,
-      }),
-    ).toMatchObject({ threadId: 'thread-recorded' });
-    expect(codex.sessions.getRaw('chat-1')).toBeUndefined();
+    expect(h.sessions.resumeFor('chat-1', run.cwdRealpath)).toBe('sess-recorded');
   });
 });
 
-async function createHarness(agentKind: 'claude' | 'codex'): Promise<{
+async function createHarness(): Promise<{
   tmp: TmpProfile;
   agent: FakeAgentAdapter;
   executor: RunExecutor;
@@ -183,14 +127,14 @@ async function createHarness(agentKind: 'claude' | 'codex'): Promise<{
   catalog: SessionCatalog;
   profileConfig: ProfileConfig;
 }> {
-  const tmp = await createTmpProfile(`resume-${agentKind}-test-`);
+  const tmp = await createTmpProfile('resume-mcode-test-');
   const agent = new FakeAgentAdapter({
-    id: agentKind,
-    displayName: agentKind,
+    id: 'mcode',
+    displayName: 'MiniMax Code',
     events: [[{ type: 'done', terminationReason: 'normal' }]],
   });
   const profileConfig = createDefaultProfileConfig({
-    agentKind,
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',
@@ -198,7 +142,7 @@ async function createHarness(agentKind: 'claude' | 'codex'): Promise<{
         tenant: 'feishu',
       },
     },
-    ...(agentKind === 'codex' ? { codex: { binaryPath: '/usr/local/bin/codex' } } : {}),
+    mcode: { binaryPath: '/usr/bin/mcode' },
   });
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
   workspaces.setCwd('chat-1', tmp.workspace);
@@ -244,10 +188,7 @@ async function start(h: Awaited<ReturnType<typeof createHarness>>) {
     prompt: 'hello',
     attachments: [],
     access: { ok: true, reason: 'allowed-user' },
-    capability:
-      h.profileConfig.agentKind === 'codex'
-        ? codexCapability(h.profileConfig)
-        : claudeCapability(h.profileConfig),
+    capability: mcodeCapability(h.profileConfig),
     profileConfig: h.profileConfig,
     sessions: h.sessions,
     sessionCatalog: h.catalog,

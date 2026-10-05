@@ -10,63 +10,61 @@ import { createDefaultProfileConfig } from '../../../src/config/profile-schema.j
 import { createRuntimeProfileConfig } from '../../../src/runtime/profile-runtime.js';
 
 describe('start runtime agent factory', () => {
-  it('keeps Claude as the default runtime agent', () => {
+  it('keeps mcode as the only runtime agent', () => {
     const agent = createRuntimeAgent(
       createDefaultProfileConfig({
-        agentKind: 'claude',
+        agentKind: 'mcode',
         accounts: appAccount(),
       }),
       { profileDir: tmpdir() },
     );
 
-    expect(agent.id).toBe('claude');
-    expect(agent.displayName).toBe('Claude Code');
+    expect(agent.id).toBe('mcode');
+    expect(agent.displayName).toBe('MiniMax Code');
   });
 
-  it('creates CodexAdapter from canonical workspace permissions', () => {
+  it('creates the mcode runtime agent from canonical workspace permissions', () => {
     const profile = createDefaultProfileConfig({
-      agentKind: 'codex',
+      agentKind: 'mcode',
       accounts: appAccount(),
-      codex: codexConfig(),
+      mcode: mcodeConfig(),
       permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
     });
     const agent = createRuntimeAgent(profile, {
-      profileDir: '/tmp/lark-channel-bridge/profiles/codex-e2e',
+      profileDir: '/tmp/lark-channel-bridge/profiles/mcode-e2e',
     });
 
-    expect(agent.id).toBe('codex');
-    expect(agent.displayName).toBe('Codex CLI');
+    expect(agent.id).toBe('mcode');
+    expect(agent.displayName).toBe('MiniMax Code');
     expect(profile.permissions).toEqual({
       defaultAccess: 'workspace',
       maxAccess: 'workspace',
     });
-    expect(profile.sandbox).toMatchObject({
-      defaultMode: 'workspace-write',
-      maxMode: 'workspace-write',
-    });
   });
 
-  it('creates a Codex runtime agent when an older profile has only a binary path', () => {
+  it('creates a mcode runtime agent when a profile pins only a binary path', () => {
     const agent = createRuntimeAgent(
       createDefaultProfileConfig({
-        agentKind: 'codex',
+        agentKind: 'mcode',
         accounts: appAccount(),
-        codex: { binaryPath: '/usr/local/bin/codex' },
+        mcode: { binaryPath: '/usr/local/bin/mcode' },
       }),
-      { profileDir: '/tmp/lark-channel-bridge/profiles/codex-e2e' },
+      { profileDir: '/tmp/lark-channel-bridge/profiles/mcode-e2e' },
     );
 
-    expect(agent.id).toBe('codex');
-    expect(agent.displayName).toBe('Codex CLI');
+    expect(agent.id).toBe('mcode');
+    expect(agent.displayName).toBe('MiniMax Code');
   });
 
-  it('seeds a default Codex binary when bootstrapping a new Codex profile', () => {
+  it('does not pin an mcode binary when bootstrapping a profile config', () => {
     const profile = createRuntimeProfileConfig({
-      agentKind: 'codex',
+      agentKind: 'mcode',
       accounts: appAccount(),
     });
 
-    expect(profile.codex?.binaryPath).toBe('codex');
+    // Resolution from PATH happens in the bootstrap/preflight flow, not in
+    // the default profile config.
+    expect(profile.mcode).toBeUndefined();
   });
 
   it('updates the process registry before releasing the old app lock during reconnect', async () => {
@@ -100,9 +98,10 @@ describe('start runtime agent factory', () => {
     expect(sup).toContain('releaseRuntimeLocks(this.locks)');
   });
 
-  it('rejects reconnect when a profile changes agent kind in place', () => {
-    expect(() => assertReconnectAgentKindUnchanged('claude', 'codex')).toThrow(/agent kind/i);
-    expect(() => assertReconnectAgentKindUnchanged('codex', 'codex')).not.toThrow();
+  it('allows reconnect when a profile keeps the same agent kind', () => {
+    expect(() => assertReconnectAgentKindUnchanged('mcode', 'mcode')).not.toThrow();
+    expect(() => assertReconnectAgentKindUnchanged(undefined, 'mcode')).not.toThrow();
+    expect(() => assertReconnectAgentKindUnchanged(undefined, undefined)).not.toThrow();
   });
 });
 
@@ -116,13 +115,8 @@ function appAccount() {
   };
 }
 
-function codexConfig() {
+function mcodeConfig() {
   return {
-    binaryPath: '/usr/local/bin/codex',
-    realpath: '/usr/local/bin/codex',
-    version: 'codex 1.2.3',
-    sha256: '0'.repeat(64),
-    owner: 501,
-    mode: 0o755,
+    binaryPath: '/usr/local/bin/mcode',
   };
 }

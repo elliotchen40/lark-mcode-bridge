@@ -22,7 +22,7 @@ describe('writeNewProfile (new-profile is additive)', () => {
     const root = await tmpRoot();
     const base = {
       profile: 'claude',
-      agentKind: 'claude' as const,
+      agentKind: 'mcode' as const,
       appSecret: 'secret',
       tenant: 'feishu' as const,
       workspace: root,
@@ -51,7 +51,7 @@ describe('writeNewProfile (new-profile is additive)', () => {
     const created = await writeNewProfile(
       {
         profile: '助手',
-        agentKind: 'claude',
+        agentKind: 'mcode',
         appId: 'cli_nimo',
         appSecret: 'secret',
         tenant: 'feishu',
@@ -69,7 +69,7 @@ describe('writeNewProfile (new-profile is additive)', () => {
     const root = await tmpRoot();
     await expect(
       writeNewProfile(
-        { profile: 'a/b', agentKind: 'claude', appId: 'cli_x', appSecret: 's', tenant: 'feishu' },
+        { profile: 'a/b', agentKind: 'mcode', appId: 'cli_x', appSecret: 's', tenant: 'feishu' },
         root,
       ),
     ).rejects.toMatchObject({ status: 400 });

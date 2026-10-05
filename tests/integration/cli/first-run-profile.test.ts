@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -19,48 +19,40 @@ afterEach(async () => {
 });
 
 describe('first-run profile bootstrap', () => {
-  it('creates a Codex profile with a default workspace and inherited user Codex home', async () => {
+  it('creates an mcode profile with a default workspace and a pinned binary path', async () => {
     const root = await makeRoot();
     const workspace = join(root, 'workspace');
-    const profileDir = join(root, 'profiles', 'codex-dev');
+    const profileDir = join(root, 'profiles', 'mcode-dev');
     await mkdir(workspace, { recursive: true });
-    const codex = await writeVersionExecutable(root, 'codex', 'codex 1.2.3');
+    const mcode = await writeVersionExecutable(root, 'mcode', 'mcode 1.2.3');
 
     const profile = await createBootstrapProfileConfig({
-      agentKind: 'codex',
-      accounts: { app: { id: 'cli_codex', secret: '${APP_SECRET}', tenant: 'feishu' } },
+      agentKind: 'mcode',
+      accounts: { app: { id: 'cli_mcode', secret: '${APP_SECRET}', tenant: 'feishu' } },
       workspace,
-      codexBinaryPath: codex,
+      mcodeBinaryPath: mcode,
       profileDir,
     });
 
     const workspaceRealpath = await realpath(workspace);
-    expect(profile.agentKind).toBe('codex');
+    expect(profile.agentKind).toBe('mcode');
     expect(profile.workspaces).toEqual({ default: workspaceRealpath });
-    expect(profile.codex).toMatchObject({
-      binaryPath: codex,
-      inheritCodexHome: true,
-    });
-    expect(profile.codex?.realpath).toBeUndefined();
-    expect(profile.codex?.version).toBeUndefined();
-    expect(profile.codex?.sha256).toBeUndefined();
-    expect(profile.sandbox).toMatchObject({
-      defaultMode: 'danger-full-access',
-      maxMode: 'danger-full-access',
-    });
-    await expect(stat(join(profileDir, 'codex-home'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(profile.mcode).toEqual({ binaryPath: mcode });
+    expect(profile).not.toHaveProperty('sandbox');
+    expect(profile).not.toHaveProperty('codex');
+    expect(profile.permissions).toEqual({ defaultAccess: 'full', maxAccess: 'full' });
   });
 
   it('creates a profile without requiring a user workspace', async () => {
     const root = await makeRoot();
-    const defaultWorkspace = join(root, 'managed-workspaces', 'codex-dev', 'default');
-    const profileDir = join(root, 'profiles', 'codex-dev');
-    const codex = await writeVersionExecutable(root, 'codex', 'codex 1.2.3');
+    const defaultWorkspace = join(root, 'managed-workspaces', 'mcode-dev', 'default');
+    const profileDir = join(root, 'profiles', 'mcode-dev');
+    const mcode = await writeVersionExecutable(root, 'mcode', 'mcode 1.2.3');
 
     const profile = await createBootstrapProfileConfig({
-      agentKind: 'codex',
-      accounts: { app: { id: 'cli_codex', secret: '${APP_SECRET}', tenant: 'feishu' } },
-      codexBinaryPath: codex,
+      agentKind: 'mcode',
+      accounts: { app: { id: 'cli_mcode', secret: '${APP_SECRET}', tenant: 'feishu' } },
+      mcodeBinaryPath: mcode,
       profileDir,
       defaultWorkspace,
     });
@@ -69,21 +61,21 @@ describe('first-run profile bootstrap', () => {
     expect(profile.workspaces.default).toBe(defaultWorkspaceRealpath);
   });
 
-  it('reports missing Codex bootstrap binaries as agent preflight diagnostics', async () => {
+  it('reports a missing mcode bootstrap binary as an agent preflight diagnostic', async () => {
     const root = await makeRoot();
-    const missing = join(root, 'missing-codex');
+    const missing = join(root, 'missing-mcode');
 
     await expect(
       createBootstrapProfileConfig({
-        agentKind: 'codex',
-        accounts: { app: { id: 'cli_codex', secret: '${APP_SECRET}', tenant: 'feishu' } },
-        codexBinaryPath: missing,
+        agentKind: 'mcode',
+        accounts: { app: { id: 'cli_mcode', secret: '${APP_SECRET}', tenant: 'feishu' } },
+        mcodeBinaryPath: missing,
       }),
     ).rejects.toMatchObject({
       diagnostic: {
         code: 'agent-binary-not-found',
-        agentId: 'codex',
-        agentName: 'Codex CLI',
+        agentId: 'mcode',
+        agentName: 'MiniMax Code',
         command: missing,
         binaryPath: missing,
       },
@@ -97,8 +89,8 @@ describe('first-run profile bootstrap', () => {
 
     await expect(
       createBootstrapProfileConfig({
-        agentKind: 'claude',
-        accounts: { app: { id: 'cli_claude', secret: '${APP_SECRET}', tenant: 'feishu' } },
+        agentKind: 'mcode',
+        accounts: { app: { id: 'cli_mcode', secret: '${APP_SECRET}', tenant: 'feishu' } },
         workspace: file,
       }),
     ).rejects.toThrow(/路径不是目录/);
@@ -108,64 +100,81 @@ describe('first-run profile bootstrap', () => {
     const root = await makeRoot();
     const workspace = join(root, 'workspace');
     await mkdir(workspace, { recursive: true });
+    const mcode = await writeVersionExecutable(root, 'mcode', 'mcode 1.2.3');
 
     const profile = await createBootstrapProfileConfig({
-      agentKind: 'claude',
-      accounts: { app: { id: 'cli_claude', secret: '${APP_SECRET}', tenant: 'feishu' } },
+      agentKind: 'mcode',
+      accounts: { app: { id: 'cli_mcode', secret: '${APP_SECRET}', tenant: 'feishu' } },
       workspace,
+      mcodeBinaryPath: mcode,
     });
 
     await expect(realpath(workspace)).resolves.toBe(profile.workspaces.default);
   });
 
   it('leaves workspaces empty when neither explicit nor managed workspace is provided', async () => {
+    const root = await makeRoot();
+    const mcode = await writeVersionExecutable(root, 'mcode', 'mcode 1.2.3');
+
     await expect(
       createBootstrapProfileConfig({
-        agentKind: 'claude',
-        accounts: { app: { id: 'cli_claude', secret: '${APP_SECRET}', tenant: 'feishu' } },
+        agentKind: 'mcode',
+        accounts: { app: { id: 'cli_mcode', secret: '${APP_SECRET}', tenant: 'feishu' } },
+        mcodeBinaryPath: mcode,
       }),
     ).resolves.toMatchObject({
       workspaces: {},
     });
   });
 
-  it('detects available agents from PATH without inventing missing tools', async () => {
+  it('detects the mcode binary from PATH without inventing missing tools', async () => {
     const root = await makeRoot();
-    const codex = await writeVersionExecutable(root, 'codex', 'codex 1.2.3');
+    const mcode = await writeVersionExecutable(root, 'mcode', 'mcode 1.2.3');
     const oldPath = process.env.PATH;
-    const oldClaude = process.env.LARK_CHANNEL_CLAUDE_BIN;
-    const oldCodex = process.env.LARK_CHANNEL_CODEX_BIN;
+    const oldMcodeBin = process.env.LARK_CHANNEL_MCODE_BIN;
     process.env.PATH = root;
-    process.env.LARK_CHANNEL_CLAUDE_BIN = 'missing-claude';
-    process.env.LARK_CHANNEL_CODEX_BIN = process.platform === 'win32' ? codex : 'codex';
+    process.env.LARK_CHANNEL_MCODE_BIN = process.platform === 'win32' ? mcode : 'mcode';
     try {
       await expect(detectInstalledAgents()).resolves.toEqual([
-        { kind: 'codex', binaryPath: codex },
+        { kind: 'mcode', binaryPath: mcode },
       ]);
     } finally {
       process.env.PATH = oldPath;
-      if (oldClaude === undefined) {
-        delete process.env.LARK_CHANNEL_CLAUDE_BIN;
+      if (oldMcodeBin === undefined) {
+        delete process.env.LARK_CHANNEL_MCODE_BIN;
       } else {
-        process.env.LARK_CHANNEL_CLAUDE_BIN = oldClaude;
+        process.env.LARK_CHANNEL_MCODE_BIN = oldMcodeBin;
       }
-      if (oldCodex === undefined) {
-        delete process.env.LARK_CHANNEL_CODEX_BIN;
+    }
+  });
+
+  it('reports no installed agent when the mcode binary is missing', async () => {
+    const root = await makeRoot();
+    const oldPath = process.env.PATH;
+    const oldMcodeBin = process.env.LARK_CHANNEL_MCODE_BIN;
+    process.env.PATH = root;
+    process.env.LARK_CHANNEL_MCODE_BIN = 'mcode';
+    try {
+      await expect(detectInstalledAgents()).resolves.toEqual([]);
+    } finally {
+      process.env.PATH = oldPath;
+      if (oldMcodeBin === undefined) {
+        delete process.env.LARK_CHANNEL_MCODE_BIN;
       } else {
-        process.env.LARK_CHANNEL_CODEX_BIN = oldCodex;
+        process.env.LARK_CHANNEL_MCODE_BIN = oldMcodeBin;
       }
     }
   });
 
   it('resolves Windows-style PATHEXT command shims from PATH', async () => {
     const root = await makeRoot();
-    await writeExecutable(root, 'codex.cmd', '@echo off\r\necho codex 1.2.3\r\n');
+    await writeExecutable(root, 'mcode.cmd', '@echo off\r\necho mcode 1.2.3\r\n');
     const oldPath = process.env.PATH;
     const oldPathExt = process.env.PATHEXT;
     process.env.PATH = root;
     process.env.PATHEXT = '.cmd;.exe';
     try {
-      await expect(resolveExecutablePath('codex')).resolves.toBe(join(root, 'codex.cmd'));
+      await expect(resolveExecutablePath('mcode')).resolves.toBe(join(root, 'mcode.cmd'));
     } finally {
       process.env.PATH = oldPath;
       if (oldPathExt === undefined) {

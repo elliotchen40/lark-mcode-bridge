@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute } from 'node:path';
 import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
-import { claudeCapability, codexCapability } from '../agent/capability';
+import { mcodeCapability } from '../agent/capability';
 import { DEFAULT_MODEL, normalizeModelSelection, supportedModels } from '../agent/models';
 import type { AgentAdapter } from '../agent/types';
 import type { ActiveRuns } from '../bot/active-runs';
@@ -43,7 +43,7 @@ import type {
 } from '../config/profile-schema';
 import { effectiveLarkCliIdentity } from '../config/profile-schema';
 import { resolveAppPaths } from '../config/app-paths';
-import { accessToClaudePermissionMode } from '../config/permissions';
+import { accessToMcodePolicy } from '../config/permissions';
 import {
   canRunAdminCommand,
   canUseDm,
@@ -61,12 +61,8 @@ import {
   reduce,
   type RunState,
 } from '../card/run-state';
-import { formatRelTime, listRecentSessions, type SessionSummary } from '../session/history';
-import {
-  listCodexThreadHistory,
-  type CodexThreadHistoryEntry,
-  type ListCodexThreadHistoryOptions,
-} from '../session/codex-history';
+import { formatRelTime } from '../session/rel-time';
+import { listMcodeSessionsForCwd, type McodeSessionSummary } from '../agent/mcode/session-history';
 import type { SessionCatalog, SessionCatalogIdentity } from '../session/catalog';
 import { isAlive, readAndPrune, resolveTarget } from '../runtime/registry';
 import { readUiSidecar } from '../ui/sidecar';
@@ -94,7 +90,7 @@ export interface Controls {
   ownerRefreshedAt?: number;
   ownerRefreshError?: string;
   refreshOwner(channel?: LarkChannel): Promise<void>;
-  /** Restart the bridge in-process: disconnect WS, kill claude runs, reload
+  /** Restart the bridge in-process: disconnect WS, kill agent runs, reload
    * config, reconnect with the new credentials. */
   restart(opts?: { wait?: boolean }): Promise<void>;
   /** Stop this whole process gracefully (disconnect + exit). Used by /exit
@@ -137,10 +133,11 @@ export interface CommandContext {
   processPool?: ProcessPool;
   runExecutor?: RunExecutor;
   controls: Controls;
-  codexHistoryProvider?: (
-    options: ListCodexThreadHistoryOptions,
-  ) => Promise<CodexThreadHistoryEntry[]>;
-  claudeHistoryProvider?: (cwd: string, limit: number) => Promise<SessionSummary[]>;
+  /**
+   * Overrides how `/resume` discovers past sessions. Defaults to mcode's own
+   * session store; injected by tests so they need no real sqlite database.
+   */
+  sessionHistoryProvider?: (cwd: string, limit: number) => McodeSessionSummary[];
   /** Set when invoked from a CardKit 2.0 form submit. Keys are input `name`s. */
   formValue?: Record<string, unknown>;
   /** True when this invocation came from a card button click rather than a
@@ -153,11 +150,10 @@ type Handler = (args: string, ctx: CommandContext) => Promise<void>;
 
 interface ResumeCandidate {
   scopeId: string;
-  agentId: 'claude' | 'codex';
+  agentId: 'mcode';
   cwdRealpath: string;
   policyFingerprint: string;
   sessionId?: string;
-  threadId?: string;
   expiresAt: number;
 }
 
@@ -557,42 +553,7 @@ async function handleResume(args: string, ctx: CommandContext): Promise<void> {
     return;
   }
 
-  if (ctx.controls.profileConfig.agentKind === 'codex') {
-    const identity = ctx.sessionCatalogIdentity;
-    const entry =
-      ctx.sessionCatalog && identity
-        ? ctx.sessionCatalog.activeFor(identity)
-        : undefined;
-    const history = identity ? await listCodexResumeHistory(ctx, cwd, limit) : [];
-    if (history.length > 0 && identity) {
-      const entries = history.map((thread) => {
-        const nonce = issueResumeCandidate(identity, { threadId: thread.threadId });
-        return {
-          sessionId: nonce,
-          preview: thread.name || thread.preview,
-          relTime: formatRelTime(thread.updatedAtMs),
-          detail: `Codex · ${thread.source}`,
-          current: thread.threadId === entry?.threadId,
-        };
-      });
-      const card = resumeCard(cwd, entries);
-      await ctx.channel.send(ctx.msg.chatId, { card }, commandReplyOptions(ctx));
-      return;
-    }
-    if (entry?.threadId && identity) {
-      const nonce = issueResumeCandidate(identity, { threadId: entry.threadId });
-      await reply(
-        ctx,
-        `当前 Codex thread 可恢复。\n使用 \`/resume use ${nonce}\` 恢复（10 分钟内有效）。`,
-      );
-      return;
-    }
-    const card = resumeCard(cwd, []);
-    await ctx.channel.send(ctx.msg.chatId, { card }, commandReplyOptions(ctx));
-    return;
-  }
-
-  const sessions = await listClaudeResumeHistory(ctx, cwd, limit);
+  const sessions = listMcodeResumeHistory(ctx, cwd, limit);
   const currentSession = ctx.sessions.getRaw(ctx.scope);
   const identity = ctx.sessionCatalogIdentity;
   const entries = sessions.map((s) => ({
@@ -602,7 +563,7 @@ async function handleResume(args: string, ctx: CommandContext): Promise<void> {
     displayId: s.sessionId,
     preview: s.preview,
     relTime: formatRelTime(s.mtime),
-    lineCount: s.lineCount,
+    detail: 'MiniMax Code',
     current: s.sessionId === currentSession?.sessionId,
   }));
   const card = resumeCard(cwd, entries);
@@ -615,29 +576,15 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
     const resolved = consumeResumeCandidate(sessionId, ctx.sessionCatalogIdentity);
     if (resolved) {
       ctx.activeRuns.interrupt(ctx.scope);
-      if (ctx.sessionCatalogIdentity.agentId === 'codex') {
-        ctx.sessionCatalog.upsertActive({
-          scopeId: ctx.sessionCatalogIdentity.scopeId,
-          agentId: 'codex',
-          cwdRealpath: ctx.sessionCatalogIdentity.cwdRealpath,
-          policyFingerprint: ctx.sessionCatalogIdentity.policyFingerprint,
-          threadId: resolved.threadId!,
-        });
-      } else {
-        ctx.sessionCatalog.upsertActive({
-          scopeId: ctx.sessionCatalogIdentity.scopeId,
-          agentId: 'claude',
-          cwdRealpath: ctx.sessionCatalogIdentity.cwdRealpath,
-          policyFingerprint: ctx.sessionCatalogIdentity.policyFingerprint,
-          sessionId: resolved.sessionId!,
-        });
-        ctx.sessions.set(ctx.scope, resolved.sessionId!, ctx.sessionCatalogIdentity.cwdRealpath);
-      }
+      ctx.sessionCatalog.upsertActive({
+        scopeId: ctx.sessionCatalogIdentity.scopeId,
+        agentId: 'mcode',
+        cwdRealpath: ctx.sessionCatalogIdentity.cwdRealpath,
+        policyFingerprint: ctx.sessionCatalogIdentity.policyFingerprint,
+        sessionId: resolved.sessionId!,
+      });
+      ctx.sessions.set(ctx.scope, resolved.sessionId!, ctx.sessionCatalogIdentity.cwdRealpath);
       await reply(ctx, RESUME_APPLIED_REPLY);
-      return;
-    }
-    if (ctx.sessionCatalogIdentity.agentId === 'codex') {
-      await reply(ctx, '当前上下文不可恢复这个会话，请先用 `/resume` 重新生成恢复候选。');
       return;
     }
     const expected = entry?.sessionId;
@@ -646,15 +593,8 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
       return;
     }
     ctx.activeRuns.interrupt(ctx.scope);
-    if (ctx.sessionCatalogIdentity.agentId === 'claude') {
-      ctx.sessions.set(ctx.scope, sessionId, ctx.sessionCatalogIdentity.cwdRealpath);
-    }
+    ctx.sessions.set(ctx.scope, sessionId, ctx.sessionCatalogIdentity.cwdRealpath);
     await reply(ctx, RESUME_APPLIED_REPLY);
-    return;
-  }
-
-  if (ctx.controls.profileConfig.agentKind === 'codex') {
-    await reply(ctx, '当前上下文没有可恢复的 Codex thread，请先在当前工作区完成一次运行。');
     return;
   }
 
@@ -670,7 +610,7 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
 
 function issueResumeCandidate(
   identity: SessionCatalogIdentity,
-  target: { sessionId: string } | { threadId: string },
+  target: { sessionId: string },
 ): string {
   pruneResumeCandidates();
   let nonce = randomUUID().slice(0, 12);
@@ -699,8 +639,7 @@ function consumeResumeCandidate(
     candidate.agentId !== identity.agentId ||
     candidate.cwdRealpath !== identity.cwdRealpath ||
     candidate.policyFingerprint !== identity.policyFingerprint ||
-    (identity.agentId === 'claude' && !candidate.sessionId) ||
-    (identity.agentId === 'codex' && !candidate.threadId)
+    !candidate.sessionId
   ) {
     return undefined;
   }
@@ -713,38 +652,23 @@ function pruneResumeCandidates(now = Date.now()): void {
   }
 }
 
-async function listClaudeResumeHistory(
+/**
+ * Discover past mcode sessions for `cwd`.
+ *
+ * The default reads mcode's sqlite session store synchronously; a provider can
+ * be injected instead (tests). Failures degrade to an empty list so `/resume`
+ * still renders its "no history" card rather than erroring.
+ */
+function listMcodeResumeHistory(
   ctx: CommandContext,
   cwd: string,
   limit: number,
-): Promise<SessionSummary[]> {
-  const provider = ctx.claudeHistoryProvider ?? listRecentSessions;
-  return provider(cwd, limit);
-}
-
-async function listCodexResumeHistory(
-  ctx: CommandContext,
-  cwd: string,
-  limit: number,
-): Promise<CodexThreadHistoryEntry[]> {
-  const codex = ctx.controls.profileConfig.codex;
-  const binary = codex?.binaryPath;
-  if (!binary) return [];
-
-  const provider = ctx.codexHistoryProvider ?? listCodexThreadHistory;
+): McodeSessionSummary[] {
+  const provider = ctx.sessionHistoryProvider ?? listMcodeSessionsForCwd;
   try {
-    return await provider({
-      binary,
-      cwd,
-      limit,
-      profileStateDir: commandProfilePaths(ctx).profileDir,
-      ...(codex.codexHome ? { codexHome: codex.codexHome } : {}),
-      ...(codex.inheritCodexHome !== undefined
-        ? { inheritCodexHome: codex.inheritCodexHome }
-        : {}),
-    });
+    return provider(cwd, limit);
   } catch (err) {
-    log.warn('session', 'codex-history-failed', {
+    log.warn('session', 'mcode-history-failed', {
       message: err instanceof Error ? err.message : String(err),
     });
     return [];
@@ -762,18 +686,12 @@ function selectedResumeCwd(ctx: CommandContext): string | undefined {
 function runtimeAccessStatus(
   profileConfig: ProfileConfig,
 ): { label: string; value: string } {
-  if (profileConfig.agentKind === 'claude') {
-    return {
-      label: 'permission',
-      value: accessToClaudePermissionMode(
-        profileConfig.permissions.defaultAccess,
-        profileConfig.permissions,
-      ),
-    };
-  }
   return {
-    label: 'sandbox',
-    value: `${profileConfig.sandbox.defaultMode}/${profileConfig.sandbox.maxMode}`,
+    label: 'permission',
+    value: accessToMcodePolicy(
+      profileConfig.permissions.defaultAccess,
+      profileConfig.permissions,
+    ),
   };
 }
 
@@ -812,17 +730,11 @@ async function larkCliStatus(ctx: CommandContext): Promise<'app' | 'user-ready' 
 async function handleStatus(_args: string, ctx: CommandContext): Promise<void> {
   const cwd = effectiveWorkspaceCwd(ctx);
   const sess = ctx.sessions.getRaw(ctx.scope);
-  const isCodex = ctx.controls.profileConfig.agentKind === 'codex';
-  const catalogEntry =
-    isCodex && ctx.sessionCatalog && ctx.sessionCatalogIdentity
-      ? ctx.sessionCatalog.activeFor(ctx.sessionCatalogIdentity)
-      : undefined;
   const card = statusCard({
     profileName: ctx.controls.profile,
     cwd,
-    sessionId: isCodex ? catalogEntry?.threadId : sess?.sessionId,
-    emptySessionText: isCodex ? '(未建立)' : undefined,
-    sessionStale: !isCodex && Boolean(cwd && sess && sess.cwd !== cwd),
+    sessionId: sess?.sessionId,
+    sessionStale: Boolean(cwd && sess && sess.cwd !== cwd),
     agentName: ctx.agent.displayName,
     runtimeAccess: runtimeAccessStatus(ctx.controls.profileConfig),
     larkCliStatus: await larkCliStatus(ctx),
@@ -1128,9 +1040,7 @@ async function handleDoctor(args: string, ctx: CommandContext): Promise<void> {
   doctorLastByOperator.set(rateKey, now);
 
   const capability =
-    ctx.controls.profileConfig.agentKind === 'codex'
-      ? codexCapability(ctx.controls.profileConfig)
-      : claudeCapability(ctx.controls.profileConfig);
+    mcodeCapability(ctx.controls.profileConfig);
   const policy = evaluateRunPolicy({
     scope: {
       source: 'im',
@@ -1163,9 +1073,7 @@ async function handleDoctor(args: string, ctx: CommandContext): Promise<void> {
     buildDoctorReport(ctx, {
       workspaceCheck: `ok (${workspace.cwdRealpath})`,
       policyCheck:
-        runtimeAccess.label === 'sandbox'
-          ? `ok sandbox=${policy.sandbox}`
-          : `ok ${runtimeAccess.label}=${policy.permissionMode}`,
+        `ok ${runtimeAccess.label}=${policy.permission}`,
       echoCheck,
     });
 
@@ -1740,10 +1648,7 @@ async function showConfigForm(ctx: CommandContext): Promise<void> {
   const card = configFormCard({
     agentKind: ctx.controls.profileConfig.agentKind,
     mode: ctx.controls.profileConfig.mode,
-    model: normalizeModelSelection(
-      ctx.controls.profileConfig.agentKind,
-      ctx.controls.cfg.preferences?.model,
-    ),
+    model: normalizeModelSelection(ctx.controls.cfg.preferences?.model),
     messageReply: getMessageReplyMode(ctx.controls.cfg),
     showToolCalls: getShowToolCalls(ctx.controls.cfg),
     cotMessages: getCotMessages(ctx.controls.cfg),
@@ -1801,12 +1706,11 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
   // Parse the model picker. Unexpected / empty values keep the current
   // selection. Store `undefined` for the "default" sentinel to keep config
   // tidy (resolveModelArg treats both the same way).
-  const agentKind = ctx.controls.profileConfig.agentKind;
   const rawModel = String(fv.model ?? '').trim();
-  const modelValid = rawModel !== '' && supportedModels(agentKind).some((m) => m.value === rawModel);
+  const modelValid = rawModel !== '' && supportedModels().some((m) => m.value === rawModel);
   const modelSelection = modelValid
     ? rawModel
-    : normalizeModelSelection(agentKind, ctx.controls.cfg.preferences?.model);
+    : normalizeModelSelection(ctx.controls.cfg.preferences?.model);
   const model = modelSelection === DEFAULT_MODEL ? undefined : modelSelection;
   const rawCotMessages = String(fv.cot_messages ?? '').trim();
   const cotMessages =
@@ -1954,7 +1858,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
       ctx,
       formMsgId,
       configSavedCard({
-        agentKind,
+        agentKind: ctx.controls.profileConfig.agentKind,
         mode,
         model: modelSelection,
         messageReply,

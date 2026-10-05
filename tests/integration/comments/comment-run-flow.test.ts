@@ -2,14 +2,12 @@ import { realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CommentEvent } from '@larksuite/channel';
-import type { AgentAdapter, AgentEvent, AgentRun, AgentRunOptions } from '../../../src/agent/types.js';
+import type { AgentEvent } from '../../../src/agent/types.js';
 import { ActiveRuns } from '../../../src/bot/active-runs.js';
 import { handleCommentMention } from '../../../src/bot/comments.js';
-import { commentDocumentScopeId, commentTokenDigest } from '../../../src/bot/comment-resource.js';
-import { codexCapability } from '../../../src/agent/capability.js';
+import { commentTokenDigest } from '../../../src/bot/comment-resource.js';
 import { ProcessPool } from '../../../src/bot/process-pool.js';
 import { createDefaultProfileConfig, type ProfileConfig } from '../../../src/config/profile-schema.js';
-import { evaluateRunPolicy } from '../../../src/policy/run-policy.js';
 import { RunExecutor } from '../../../src/runtime/run-executor.js';
 import { SessionCatalog } from '../../../src/session/catalog.js';
 import { SessionStore } from '../../../src/session/store.js';
@@ -89,7 +87,7 @@ describe('comment run flow', () => {
     expect(priorBlock).not.toContain('说说你的思考');
   });
 
-  it('shares Claude sessions across different comment threads in the same document', async () => {
+  it('shares mcode sessions across different comment threads in the same document', async () => {
     const h = await createHarness({
       agentTexts: ['first answer', 'second answer', 'third answer'],
       sessionIds: ['session-one', 'session-two', 'session-three'],
@@ -107,29 +105,13 @@ describe('comment run flow', () => {
     expect(h.sessions.resumeFor('doc:doc-token', await realpath(h.tmp.workspace))).toBeUndefined();
   });
 
-  it('shares Codex threads across different comment threads in the same document', async () => {
+  it('keeps streamed progress text out of every comment reply', async () => {
+    // mcode streams progress before it settles on the answer; the comment reply
+    // must carry the final answer, not the commentary that preceded it.
     const h = await createHarness({
-      agentKind: 'codex',
-      agentTexts: ['first answer', 'second answer', 'third answer'],
-      threadIds: ['thread-one', 'thread-two', 'thread-three'],
-    });
-
-    await handleCommentMention(h.deps(event({ commentId: 'comment-1', replyId: 'reply-1' })));
-    await handleCommentMention(h.deps(event({ commentId: 'comment-2', replyId: 'reply-2' })));
-    await handleCommentMention(h.deps(event({ commentId: 'comment-1', replyId: 'reply-1' })));
-
-    expect(h.agent.runOptions).toHaveLength(3);
-    expect(h.agent.runOptions[0]?.threadId).toBeUndefined();
-    expect(h.agent.runOptions[1]?.threadId).toBe('thread-one');
-    expect(h.agent.runOptions[2]?.threadId).toBe('thread-two');
-  });
-
-  it('keeps Codex pre-tool progress text out of every comment reply', async () => {
-    const h = await createHarness({
-      agentKind: 'codex',
       agentEventRuns: [
-        codexRunWithProgress('thread-one', '我先读取文档再处理。', 'first final'),
-        codexRunWithProgress('thread-two', '我继续读取上下文。', 'second final'),
+        mcodeRunWithProgress('session-one', '我先读取文档再处理。', 'first final'),
+        mcodeRunWithProgress('session-two', '我继续读取上下文。', 'second final'),
       ],
     });
 
@@ -137,26 +119,6 @@ describe('comment run flow', () => {
     await handleCommentMention(h.deps(event({ commentId: 'comment-1', replyId: 'reply-1' })));
 
     expect(h.inThreadReplies).toEqual(['first final', 'second final']);
-  });
-
-  it('does not reuse an existing Codex thread while another document comment run is active', async () => {
-    const h = await createBlockingHarness({
-      agentKind: 'codex',
-      threadIds: ['thread-one', 'thread-two'],
-    });
-    await seedCodexCatalog(h, 'seed-thread');
-
-    const first = handleCommentMention(h.deps(event({ commentId: 'comment-1', replyId: 'reply-1' })));
-    await waitFor(() => h.agent.runOptions.length === 1);
-    const second = handleCommentMention(h.deps(event({ commentId: 'comment-2', replyId: 'reply-2' })));
-    await waitFor(() => h.agent.runOptions.length === 2);
-
-    expect(h.agent.runOptions[0]?.threadId).toBe('seed-thread');
-    expect(h.agent.runOptions[1]?.threadId).toBeUndefined();
-
-    h.agent.finishRun(0);
-    h.agent.finishRun(1);
-    await Promise.all([first, second]);
   });
 
   it('keeps replying when typing reaction add fails', async () => {
@@ -214,11 +176,9 @@ describe('comment run flow', () => {
 });
 
 async function createHarness(options: {
-  agentKind?: 'claude' | 'codex';
   agentTexts?: string[];
   agentEventRuns?: AgentEvent[][];
   sessionIds?: string[];
-  threadIds?: string[];
   reactionFails?: boolean;
   /** Full reply_list (chronological) returned by fileComment.get for comment-1.
    * Lets a test model a thread with replies preceding the @bot reply. */
@@ -238,28 +198,16 @@ async function createHarness(options: {
   const tmp = await createTmpProfile('comment-run-flow-');
   const requests: RequestRecord[] = [];
   const inThreadReplies: string[] = [];
-  const agentKind = options.agentKind ?? 'claude';
   const agentTexts = options.agentTexts ?? ['answer one'];
   const sessionIds = options.sessionIds ?? ['session-one'];
-  const threadIds = options.threadIds ?? ['thread-one'];
   const eventRuns: AgentEvent[][] =
     options.agentEventRuns ??
     agentTexts.map((text, index) => [
-      {
-        type: 'system',
-        ...(agentKind === 'codex'
-          ? { threadId: threadIds[index] ?? `thread-${index}` }
-          : { sessionId: sessionIds[index] ?? `session-${index}` }),
-        cwd: tmp.workspace,
-      },
-      agentKind === 'codex'
-        ? { type: 'final_text', content: text }
-        : { type: 'text', delta: text },
+      { type: 'system', sessionId: sessionIds[index] ?? `session-${index}`, cwd: tmp.workspace },
+      { type: 'text', delta: text },
       {
         type: 'done',
-        ...(agentKind === 'codex'
-          ? { threadId: threadIds[index] ?? `thread-${index}` }
-          : { sessionId: sessionIds[index] ?? `session-${index}` }),
+        sessionId: sessionIds[index] ?? `session-${index}`,
         terminationReason: 'normal',
       },
     ]);
@@ -319,7 +267,7 @@ async function createHarness(options: {
   const sessionCatalog = new SessionCatalog(join(tmp.profile, 'session-catalog.json'));
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
   workspaces.setCwd(docSessionScope('doc-token'), tmp.workspace);
-  const profileConfig = profile(tmp.workspace, agentKind);
+  const profileConfig = profile(tmp.workspace);
   const activeRuns = new ActiveRuns();
   const executor = new RunExecutor({
     agent,
@@ -367,222 +315,30 @@ async function createHarness(options: {
   };
 }
 
-async function createBlockingHarness(options: {
-  agentKind: 'codex';
-  threadIds: string[];
-}): Promise<{
-  tmp: TmpProfile;
-  agent: BlockingAgentAdapter;
-  sessionCatalog: SessionCatalog;
-  workspaces: WorkspaceStore;
-  profileConfig: ProfileConfig;
-  deps(evt: CommentEvent): Parameters<typeof handleCommentMention>[0];
-}> {
-  const tmp = await createTmpProfile('comment-run-flow-blocking-');
-  const requests: RequestRecord[] = [];
-  const agent = new BlockingAgentAdapter(options.threadIds);
-  const rawClient: FakeCommentChannel['rawClient'] = {
-    async request(input) {
-      requests.push(input);
-      return {};
-    },
-    wiki: {
-      v2: { space: { async getNode() { throw apiError(131005); } } },
-    },
-    drive: {
-      v1: {
-        fileComment: {
-          async get(input) {
-            const commentId = input.path.comment_id;
-            const replyId = commentId === 'comment-2' ? 'reply-2' : 'reply-1';
-            return commentGet(replyId, '@bot question');
-          },
-          async list() {
-            return { data: { items: [] } };
-          },
-          async create() {
-            return {};
-          },
-        },
-      },
-    },
-  };
-  const channel: FakeCommentChannel = {
-    requests,
-    rawClient,
-    comments: makeFakeCommentSurface(rawClient),
-  };
-  const sessions = new SessionStore(join(tmp.profile, 'sessions.json'));
-  const sessionCatalog = new SessionCatalog(join(tmp.profile, 'session-catalog.json'));
-  const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
-  workspaces.setCwd(docSessionScope('doc-token'), tmp.workspace);
-  const profileConfig = profile(tmp.workspace, options.agentKind);
-  const activeRuns = new ActiveRuns();
-  const executor = new RunExecutor({
-    agent,
-    pool: new ProcessPool(() => 2),
-    activeRuns,
-    createRunId: () => `comment-run-${agent.runOptions.length + 1}`,
-  });
-  cleanups.push(async () => {
-    await Promise.all([sessions.flush(), sessionCatalog.flush(), workspaces.flush()]);
-    await tmp.cleanup();
-  });
-
-  return {
-    tmp,
-    agent,
-    sessionCatalog,
-    workspaces,
-    profileConfig,
-    deps: (evt) => ({
-      channel: channel as unknown as Parameters<typeof handleCommentMention>[0]['channel'],
-      evt,
-      agent,
-      sessions,
-      sessionCatalog,
-      workspaces,
-      activeRuns,
-      executor,
-      controls: {
-        profile: 'claude',
-        profileConfig,
-        botOwnerId: 'ou-owner',
-        ownerRefreshState: 'ok',
-        async refreshOwner() {},
-        configPath: join(tmp.profile, 'config.json'),
-        cfg: profileConfig,
-        processId: 'proc-1',
-        async restart() {},
-        async exit() {},
-      },
-    }),
-  };
-}
-
-async function seedCodexCatalog(
-  h: Awaited<ReturnType<typeof createBlockingHarness>>,
-  threadId: string,
-): Promise<void> {
-  const cwdRealpath = await realpath(h.tmp.workspace);
-  const capability = codexCapability(h.profileConfig);
-  const policy = evaluateRunPolicy({
-    scope: {
-      source: 'comment',
-      actorId: 'ou-user',
-      commentScopeId: docSessionScope('doc-token'),
-      resourceBindings: [{ kind: 'doc', id: commentDocumentScopeId('doc-token'), verified: true }],
-    },
-    attachments: [],
-    prompt: '',
-    requestedCwd: h.tmp.workspace,
-    cwdRealpath,
-    access: { ok: true, reason: 'comment-mention' },
-    capability,
-    profileConfig: h.profileConfig,
-    now: Date.now(),
-    codexHome: h.profileConfig.codex?.codexHome,
-    inheritCodexHome: h.profileConfig.codex?.inheritCodexHome,
-  });
-  if (!policy.ok) throw new Error('failed to seed policy');
-  h.sessionCatalog.upsertActive({
-    scopeId: docSessionScope('doc-token'),
-    agentId: 'codex',
-    cwdRealpath,
-    policyFingerprint: policy.policyFingerprint,
-    threadId,
-  });
-}
-
-class BlockingAgentAdapter implements AgentAdapter {
-  readonly id = 'fake-agent';
-  readonly displayName = 'Fake Agent';
-  readonly runOptions: AgentRunOptions[] = [];
-  private readonly finishers: Array<() => void> = [];
-
-  constructor(private readonly threadIds: string[]) {}
-
-  async isAvailable(): Promise<boolean> {
-    return true;
-  }
-
-  run(opts: AgentRunOptions): AgentRun {
-    const index = this.runOptions.length;
-    this.runOptions.push(opts);
-    let stopped = false;
-    let finish!: () => void;
-    const done = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    this.finishers[index] = finish;
-    return {
-      runId: opts.runId,
-      events: this.events(index, done, () => stopped),
-      async stop() {
-        stopped = true;
-        finish();
-      },
-      async waitForExit() {
-        return true;
-      },
-    };
-  }
-
-  finishRun(index: number): void {
-    this.finishers[index]?.();
-  }
-
-  private async *events(
-    index: number,
-    done: Promise<void>,
-    isStopped: () => boolean,
-  ): AsyncIterable<AgentEvent> {
-    yield { type: 'system', threadId: this.threadIds[index] ?? `thread-${index}` };
-    yield { type: 'text', delta: `answer ${index}` };
-    await done;
-    if (!isStopped()) {
-      yield {
-        type: 'done',
-        threadId: this.threadIds[index] ?? `thread-${index}`,
-        terminationReason: 'normal',
-      };
-    }
-  }
-}
-
-async function waitFor(predicate: () => boolean): Promise<void> {
-  for (let i = 0; i < 50; i++) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error('timed out waiting for condition');
-}
-
-function profile(defaultWorkspace: string, agentKind: 'claude' | 'codex' = 'claude'): ProfileConfig {
+function profile(defaultWorkspace: string): ProfileConfig {
   const config = createDefaultProfileConfig({
-    agentKind,
+    agentKind: 'mcode',
     accounts: { app: { id: 'cli_test', secret: '${APP_SECRET}', tenant: 'feishu' } },
     access: { allowedUsers: ['ou-user'] },
-    sandbox: { defaultMode: 'read-only', maxMode: 'workspace-write' },
-    ...(agentKind === 'codex' ? { codex: { binaryPath: 'codex' } } : {}),
+    permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
   });
   config.workspaces.default = defaultWorkspace;
   return config;
 }
 
-function codexRunWithProgress(threadId: string, progress: string, finalAnswer: string): AgentEvent[] {
+function mcodeRunWithProgress(sessionId: string, progress: string, finalAnswer: string): AgentEvent[] {
   return [
-    { type: 'system', threadId },
+    { type: 'system', sessionId },
     { type: 'text', delta: progress },
     {
       type: 'tool_use',
-      id: `${threadId}-tool`,
+      id: `${sessionId}-tool`,
       name: 'command_execution',
       input: { command: 'lark-cli docs +fetch --api-version v2 --doc doc-token --doc-format markdown' },
     },
-    { type: 'tool_result', id: `${threadId}-tool`, output: 'doc body', isError: false },
+    { type: 'tool_result', id: `${sessionId}-tool`, output: 'doc body', isError: false },
     { type: 'final_text', content: finalAnswer },
-    { type: 'done', threadId, terminationReason: 'normal' },
+    { type: 'done', sessionId, terminationReason: 'normal' },
   ];
 }
 

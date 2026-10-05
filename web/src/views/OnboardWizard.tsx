@@ -7,11 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
 
@@ -29,7 +24,9 @@ function uniqueName(base: string, existing: string[]): string {
 }
 
 export function OnboardWizard({ onCreated }: { onCreated: (profile: string) => void }) {
-  const [agentKind, setAgentKind] = useState<AgentKind>("claude");
+  // mcode is the only supported agent, so the wizard has nothing to choose
+  // between; the kind is fixed rather than user-selected.
+  const agentKind: AgentKind = "mcode";
   const [profileName, setProfileName] = useState("");
   const [botName, setBotName] = useState("");
   const [detected, setDetected] = useState<AgentKind[]>([]);
@@ -45,8 +42,6 @@ export function OnboardWizard({ onCreated }: { onCreated: (profile: string) => v
       .then((s) => {
         setDetected(s.detectedAgents);
         setExisting(s.profiles);
-        if (s.detectedAgents.length && !s.detectedAgents.includes("claude"))
-          setAgentKind(s.detectedAgents[0]!);
       })
       .catch(() => {});
   }, []);
@@ -128,13 +123,7 @@ export function OnboardWizard({ onCreated }: { onCreated: (profile: string) => v
         </div>
         <div className="space-y-1.5">
           <Label>AI Agent</Label>
-          <Select value={agentKind} onValueChange={(v) => setAgentKind(v as AgentKind)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="claude">Claude Code</SelectItem>
-              <SelectItem value="codex">Codex</SelectItem>
-            </SelectContent>
-          </Select>
+          <p className="text-sm text-muted-foreground">MiniMax Code（mcode）</p>
         </div>
         <div className="space-y-1.5">
           <Label>Profile 名称</Label>
@@ -185,7 +174,7 @@ export function OnboardWizard({ onCreated }: { onCreated: (profile: string) => v
         )}
       </div>
       {detected.length === 0 && (
-        <p className="text-center text-xs text-muted-foreground">未检测到已安装的 agent，请确保 claude 或 codex 已安装。</p>
+        <p className="text-center text-xs text-muted-foreground">未检测到已安装的 agent，请确保已安装 mcode（npm i -g @minimax-ai/code）。</p>
       )}
       <p className="text-center text-xs text-muted-foreground">扫码人会成为应用 owner，自动豁免访问控制。</p>
     </div>

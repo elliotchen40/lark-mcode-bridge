@@ -1,23 +1,31 @@
+/**
+ * Access ladder for a single agent run.
+ *
+ * This is the canonical, agent-agnostic vocabulary: `/config` edits these
+ * three levels, the run policy clamps a profile's request against the agent
+ * capability, and only the final step translates into the flag `mcode exec`
+ * actually understands.
+ */
 export type AccessMode = 'read-only' | 'workspace' | 'full';
-export type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
-export type ClaudePermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+
+/**
+ * mcode's tool-execution policy, forwarded to `mcode exec --permission`.
+ *
+ * There is deliberately no `ask` option: mcode only offers interactive
+ * approval in the TUI / ACP transports, and the bridge drives the headless
+ * `exec` transport, where an approval request would hang the run.
+ */
+export type McodePermissionPolicy = 'off' | 'smart' | 'full';
 
 export interface PermissionConfig {
   defaultAccess: AccessMode;
   maxAccess: AccessMode;
-  claude?: {
-    permissionMode?: ClaudePermissionMode;
+  mcode?: {
+    policy?: McodePermissionPolicy;
   };
 }
 
-export type PermissionSource = 'permissions' | 'sandbox' | 'default';
-
-interface LegacySandboxInput {
-  default?: CodexSandboxMode;
-  max?: CodexSandboxMode;
-  defaultMode?: CodexSandboxMode;
-  maxMode?: CodexSandboxMode;
-}
+export type PermissionSource = 'permissions' | 'default';
 
 export interface NormalizedPermissions {
   permissions: PermissionConfig;
@@ -30,42 +38,35 @@ const ACCESS_ORDER: Record<AccessMode, number> = {
   full: 2,
 };
 
-const CLAUDE_PERMISSION_ACCESS: Record<ClaudePermissionMode, AccessMode> = {
-  plan: 'read-only',
-  default: 'workspace',
-  acceptEdits: 'workspace',
-  bypassPermissions: 'full',
+/**
+ * Capability each mcode policy represents, used to keep an explicit override
+ * from silently exceeding the profile's `maxAccess`.
+ */
+const MCODE_POLICY_ACCESS: Record<McodePermissionPolicy, AccessMode> = {
+  off: 'read-only',
+  smart: 'workspace',
+  full: 'full',
 };
 
 export function normalizePermissions(input: {
   permissions?: Partial<PermissionConfig> | undefined;
-  sandbox?: Partial<LegacySandboxInput> | undefined;
 }): NormalizedPermissions {
-  const hasSandbox = hasLegacySandbox(input.sandbox);
-  const base = hasSandbox
-    ? normalizeLegacySandboxPermissions(input.sandbox)
-    : defaultPermissions();
-
-  if (input.permissions !== undefined) {
-    return {
-      permissions: normalizeCanonicalPermissions(input.permissions, base),
-      source: 'permissions',
-    };
+  if (input.permissions === undefined) {
+    return { permissions: defaultPermissions(), source: 'default' };
   }
-
   return {
-    permissions: base,
-    source: hasSandbox ? 'sandbox' : 'default',
+    permissions: normalizeCanonicalPermissions(input.permissions, defaultPermissions()),
+    source: 'permissions',
   };
 }
 
 export function assertAccessPair(
   defaultAccess: AccessMode,
   maxAccess: AccessMode,
-  source: PermissionSource | 'sandbox' = 'permissions',
+  source: PermissionSource = 'permissions',
 ): void {
   if (ACCESS_ORDER[defaultAccess] > ACCESS_ORDER[maxAccess]) {
-    const suffix = source === 'sandbox' ? ' from sandbox' : '';
+    const suffix = source === 'default' ? '' : ` from ${source}`;
     throw new Error(`permission defaultAccess cannot exceed maxAccess${suffix}`);
   }
 }
@@ -80,70 +81,41 @@ export function clampAccess(
   return ACCESS_ORDER[defaultAccess] <= ACCESS_ORDER[maxAllowed] ? defaultAccess : maxAllowed;
 }
 
-export function codexSandboxToAccess(mode: CodexSandboxMode): AccessMode {
-  switch (mode) {
-    case 'read-only':
-      return 'read-only';
-    case 'workspace-write':
-      return 'workspace';
-    case 'danger-full-access':
-      return 'full';
-    default:
-      throw new Error('invalid sandbox mode');
-  }
-}
-
-export function accessToCodexSandbox(access: AccessMode): CodexSandboxMode {
-  switch (access) {
-    case 'read-only':
-      return 'read-only';
-    case 'workspace':
-      return 'workspace-write';
-    case 'full':
-      return 'danger-full-access';
-  }
-}
-
-export function accessToClaudePermissionMode(
+/**
+ * Resolve the policy handed to `mcode exec --permission`.
+ *
+ * An explicit `permissions.mcode.policy` wins when it does not exceed the
+ * already-clamped `access` level; otherwise the level maps directly. This is
+ * what keeps `/config` from being able to grant more than the profile allows.
+ */
+export function accessToMcodePolicy(
   access: AccessMode,
   permissions?: PermissionConfig,
-): ClaudePermissionMode {
-  const override = permissions?.claude?.permissionMode;
+): McodePermissionPolicy {
+  const override = permissions?.mcode?.policy;
   if (
     override &&
-    ACCESS_ORDER[CLAUDE_PERMISSION_ACCESS[override]] <= ACCESS_ORDER[access]
+    ACCESS_ORDER[MCODE_POLICY_ACCESS[override]] <= ACCESS_ORDER[access]
   ) {
     return override;
   }
-
-  return accessToDefaultClaudePermissionMode(access);
+  return accessToDefaultMcodePolicy(access);
 }
 
-function accessToDefaultClaudePermissionMode(access: AccessMode): ClaudePermissionMode {
+function accessToDefaultMcodePolicy(access: AccessMode): McodePermissionPolicy {
   switch (access) {
     case 'read-only':
-      return 'plan';
+      return 'off';
     case 'workspace':
-      return 'acceptEdits';
+      return 'smart';
     case 'full':
-      return 'bypassPermissions';
+      return 'full';
   }
 }
 
-export function permissionsToLegacySandbox(permissions: PermissionConfig): {
-  default: CodexSandboxMode;
-  max: CodexSandboxMode;
-  defaultMode: CodexSandboxMode;
-  maxMode: CodexSandboxMode;
-} {
-  const defaultMode = accessToCodexSandbox(permissions.defaultAccess);
-  const maxMode = accessToCodexSandbox(permissions.maxAccess);
-  return {
-    default: defaultMode,
-    max: maxMode,
-    defaultMode,
-    maxMode,
-  };
+/** The access level a stored mcode policy represents (for display / clamping). */
+export function mcodePolicyToAccess(policy: McodePermissionPolicy): AccessMode {
+  return MCODE_POLICY_ACCESS[policy];
 }
 
 function normalizeCanonicalPermissions(
@@ -162,14 +134,14 @@ function normalizeCanonicalPermissions(
     (ACCESS_ORDER[base.defaultAccess] <= ACCESS_ORDER[maxAccess] ? base.defaultAccess : maxAccess);
   assertAccessPair(defaultAccess, maxAccess);
 
-  const claude = normalizeClaudePermissions(input.claude);
-  if (claude?.permissionMode) {
-    assertClaudePermissionWithinAccess(claude.permissionMode, maxAccess);
+  const mcode = normalizeMcodePermissions(input.mcode);
+  if (mcode?.policy) {
+    assertMcodePolicyWithinAccess(mcode.policy, maxAccess);
   }
   return {
     defaultAccess,
     maxAccess,
-    ...(claude ? { claude } : {}),
+    ...(mcode ? { mcode } : {}),
   };
 }
 
@@ -180,67 +152,33 @@ function defaultPermissions(): PermissionConfig {
   };
 }
 
-function assertClaudePermissionWithinAccess(
-  permissionMode: ClaudePermissionMode,
+function assertMcodePolicyWithinAccess(
+  policy: McodePermissionPolicy,
   maxAccess: AccessMode,
 ): void {
-  if (ACCESS_ORDER[CLAUDE_PERMISSION_ACCESS[permissionMode]] > ACCESS_ORDER[maxAccess]) {
-    throw new Error('permission claude.permissionMode cannot exceed maxAccess');
+  if (ACCESS_ORDER[MCODE_POLICY_ACCESS[policy]] > ACCESS_ORDER[maxAccess]) {
+    throw new Error('permission mcode.policy cannot exceed maxAccess');
   }
 }
 
-function normalizeLegacySandboxPermissions(
-  input: Partial<LegacySandboxInput> | undefined,
-): PermissionConfig {
-  if (!isConfigObject(input)) {
-    throw new Error('invalid sandbox mode');
-  }
-
-  const maxMode = readSandboxMode(input.max ?? input.maxMode, 'maxMode') ?? 'danger-full-access';
-  const defaultMode = readSandboxMode(input.default ?? input.defaultMode, 'defaultMode') ?? maxMode;
-  const defaultAccess = codexSandboxToAccess(defaultMode);
-  const maxAccess = codexSandboxToAccess(maxMode);
-  assertAccessPair(defaultAccess, maxAccess, 'sandbox');
-
-  return {
-    defaultAccess,
-    maxAccess,
-  };
-}
-
-function normalizeClaudePermissions(
-  input: PermissionConfig['claude'] | undefined,
-): PermissionConfig['claude'] | undefined {
+function normalizeMcodePermissions(
+  input: PermissionConfig['mcode'] | undefined,
+): PermissionConfig['mcode'] | undefined {
   if (input === undefined) {
     return undefined;
   }
   if (!isConfigObject(input)) {
-    throw new Error('invalid permission claude config');
+    throw new Error('invalid permission mcode config');
   }
-  if (input.permissionMode === undefined) {
+  if (input.policy === undefined) {
     return undefined;
   }
-  if (!isClaudePermissionMode(input.permissionMode)) {
-    throw new Error('invalid permission claude.permissionMode');
+  if (!isMcodePermissionPolicy(input.policy)) {
+    throw new Error('invalid permission mcode.policy');
   }
   return {
-    permissionMode: input.permissionMode,
+    policy: input.policy,
   };
-}
-
-function hasLegacySandbox(input: Partial<LegacySandboxInput> | undefined): boolean {
-  if (input === undefined) {
-    return false;
-  }
-  if (!isConfigObject(input)) {
-    throw new Error('invalid sandbox mode');
-  }
-  return (
-    input.default !== undefined ||
-    input.max !== undefined ||
-    input.defaultMode !== undefined ||
-    input.maxMode !== undefined
-  );
 }
 
 function readAccess(value: unknown, field: string): AccessMode | undefined {
@@ -253,16 +191,6 @@ function readAccess(value: unknown, field: string): AccessMode | undefined {
   return value;
 }
 
-function readSandboxMode(value: unknown, field: string): CodexSandboxMode | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (!isCodexSandboxMode(value)) {
-    throw new Error(`invalid sandbox ${field}`);
-  }
-  return value;
-}
-
 function isAccessMode(value: unknown): value is AccessMode {
   return value === 'read-only' || value === 'workspace' || value === 'full';
 }
@@ -271,15 +199,6 @@ function isConfigObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isCodexSandboxMode(value: unknown): value is CodexSandboxMode {
-  return value === 'read-only' || value === 'workspace-write' || value === 'danger-full-access';
-}
-
-function isClaudePermissionMode(value: unknown): value is ClaudePermissionMode {
-  return (
-    value === 'default' ||
-    value === 'acceptEdits' ||
-    value === 'bypassPermissions' ||
-    value === 'plan'
-  );
+export function isMcodePermissionPolicy(value: unknown): value is McodePermissionPolicy {
+  return value === 'off' || value === 'smart' || value === 'full';
 }

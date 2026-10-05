@@ -83,8 +83,8 @@ export function buildConfigView(state: MutableProfileState, live = false): Confi
     profile: state.profile,
     agentKind,
     mode: state.profileConfig.mode,
-    model: normalizeModelSelection(agentKind, state.cfg.preferences?.model),
-    models: supportedModels(agentKind),
+    model: normalizeModelSelection(state.cfg.preferences?.model),
+    models: supportedModels(),
     messageReply: getMessageReplyMode(state.cfg),
     showToolCalls: getShowToolCalls(state.cfg),
     cotMessages: getCotMessages(state.cfg),
@@ -213,10 +213,10 @@ function parseConfigBody(state: MutableProfileState, body: unknown): ParsedConfi
       : state.profileConfig.larkCli.identityPreset;
 
   const rawModel = typeof fv.model === 'string' ? fv.model : '';
-  const modelValid = rawModel !== '' && supportedModels(agentKind).some((m) => m.value === rawModel);
+  const modelValid = rawModel !== '' && supportedModels().some((m) => m.value === rawModel);
   const modelSelection = modelValid
     ? rawModel
-    : normalizeModelSelection(agentKind, state.cfg.preferences?.model);
+    : normalizeModelSelection(state.cfg.preferences?.model);
   const model = modelSelection === DEFAULT_MODEL ? undefined : modelSelection;
 
   const messageReply: MessageReplyMode =

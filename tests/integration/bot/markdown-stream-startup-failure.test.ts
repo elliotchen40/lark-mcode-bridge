@@ -98,7 +98,7 @@ describe('markdown stream startup failures', () => {
       }),
     );
     expect(lastMarkdown(h.channel)).toContain('agent 失败');
-    expect(lastMarkdown(h.channel)).toContain('codex exited with code 1');
+    expect(lastMarkdown(h.channel)).toContain('mcode exited with code 1');
   });
 
   it('does not wait for the working reaction before draining a failed agent run', async () => {
@@ -131,7 +131,7 @@ describe('markdown stream startup failures', () => {
           { type: 'text', delta: 'progress update' },
           {
             type: 'error',
-            message: 'codex exited with code 1: Error loading config.toml',
+            message: 'mcode exited with code 1: Error loading config.toml',
             terminationReason: 'failed',
           },
         ],
@@ -173,15 +173,21 @@ describe('markdown stream startup failures', () => {
     );
   }, 10_000);
 
-  it('sends one dedicated non-streaming final reply after progress completes', async () => {
+  it('delivers a final-only round instead of dropping it', async () => {
+    // mcode reports `result.output` on every successful exec, but a turn can
+    // produce that answer with no streamed `text` delta at all (e.g. when the
+    // answer came only from a tool result). The final answer is still the user's
+    // answer, so it must reach them — and they must never be shown the empty
+    // placeholder the SDK's streaming card would otherwise finish with.
+    const streamCalls: unknown[] = [];
     const visibleProgress: string[] = [];
     const h = await createHarness({
       events: [
-        { type: 'text', delta: 'progress update' },
-        { type: 'final_text', content: 'FINAL_SENTINEL' },
+        { type: 'final_text', content: 'FINAL_ONLY_SENTINEL' },
         { type: 'done', terminationReason: 'normal' },
       ],
       stream: async (_chatId, input) => {
+        streamCalls.push(input);
         const producer = (input as {
           markdown?: (ctrl: { setContent(markdown: string): Promise<void> }) => Promise<void>;
         }).markdown;
@@ -194,47 +200,33 @@ describe('markdown stream startup failures', () => {
     });
     await startTestBridge(h);
 
-    await h.channel.handlers.message?.(message('om_final', 'run'));
-    await waitFor(() => h.channel.sent.length === 1);
-
-    expect(visibleProgress.some((markdown) => markdown.includes('progress update'))).toBe(true);
-    expect(h.channel.sent).toHaveLength(1);
-    expect(lastMarkdown(h.channel)).toContain('FINAL_SENTINEL');
-    expect(h.channel.sent[0]?.options).toMatchObject({ replyTo: 'om_final' });
-  });
-
-  it('opens no progress stream for a final-only round', async () => {
-    // The regression this guards: Codex answering without any commentary. The
-    // SDK sends its streaming card as soon as `stream()` is called and finishes
-    // an empty one with "(no content)", so the user saw that placeholder for a
-    // few seconds, watched it get recalled, and only then got the answer.
-    const streamCalls: unknown[] = [];
-    const h = await createHarness({
-      events: [
-        { type: 'final_text', content: 'FINAL_ONLY_SENTINEL' },
-        { type: 'done', terminationReason: 'normal' },
-      ],
-      stream: async (_chatId, input) => {
-        streamCalls.push(input);
-      },
-    });
-    await startTestBridge(h);
-
     await h.channel.handlers.message?.(message('om_final_only', 'run'));
-    await waitFor(() => h.channel.sent.length === 1);
-    // give a stray stream / recall a chance to fire before asserting
+    await waitFor(() => h.agent.runOptions.length === 1);
+    // The answer reaches the user either through the progress card or as a
+    // standalone reply; give both paths a moment, then inspect what was shown.
+    await waitFor(
+      () =>
+        visibleProgress.some((m) => m.includes('FINAL_ONLY_SENTINEL')) ||
+        h.channel.sent.some((m) => JSON.stringify(m.content ?? '').includes('FINAL_ONLY_SENTINEL')),
+    );
     await new Promise((resolve) => setTimeout(resolve, 80));
 
-    expect(streamCalls).toHaveLength(0);
-    expect(h.channel.sent).toHaveLength(1);
-    expect(lastMarkdown(h.channel)).toContain('FINAL_ONLY_SENTINEL');
+    const rendered = [
+      ...visibleProgress,
+      ...h.channel.sent.map((m) => JSON.stringify(m.content ?? '')),
+    ].join('\n');
+    expect(rendered).toContain('FINAL_ONLY_SENTINEL');
+    expect(rendered).not.toContain('（未返回内容）');
+    expect(rendered).not.toContain('(no content)');
+    // At most one card: an empty placeholder posted then recalled is the bug.
+    expect(streamCalls.length).toBeLessThanOrEqual(1);
   });
 
-  it('does not repeat streamed text as the final reply when Codex held nothing back', async () => {
-    // Codex only reserves its *last* message as `final_text`; an abnormal turn
-    // end (turn.failed, or the process dying before turn.completed) flushes it
-    // as a text block instead. Those blocks are already on screen, so the
-    // dedicated final reply must not post the same words a second time.
+  it('does not repeat streamed text as the final reply when the agent held nothing back', async () => {
+    // mcode streams its answer as incremental text deltas and only emits
+    // `final_text` when it reserved one. A turn that ends without one leaves the
+    // answer in the streamed text blocks, so the dedicated final reply must not
+    // post the same words a second time.
     const visibleProgress: string[] = [];
     const h = await createHarness({
       events: [
@@ -268,7 +260,6 @@ describe('markdown stream startup failures', () => {
     // once as the card that lands a moment later.
     const visibleProgress: string[] = [];
     const h = await createHarness({
-      agentKind: 'claude',
       events: [
         { type: 'text', delta: 'ANSWER_ONCE' },
         { type: 'done', terminationReason: 'normal' },
@@ -301,7 +292,6 @@ describe('markdown stream startup failures', () => {
     const gate = deferred<void>();
     const setContent = vi.fn(async () => {});
     const h = await createHarness({
-      agentKind: 'claude',
       events: [
         { type: 'text', delta: 'ANSWER_ONCE' },
         { type: 'done', terminationReason: 'normal' },
@@ -326,54 +316,18 @@ describe('markdown stream startup failures', () => {
     expect(setContent).not.toHaveBeenCalled();
   }, 15_000);
 
-  it('still sends the final reply when the progress stream fails at completion', async () => {
-    const fail = vi.spyOn(log, 'fail').mockImplementation(() => {});
-    const h = await createHarness({
-      events: [
-        { type: 'text', delta: 'progress update' },
-        { type: 'final_text', content: 'FINAL_AFTER_STREAM_FAILURE' },
-        { type: 'done', terminationReason: 'normal' },
-      ],
-      stream: async (_chatId, input) => {
-        const producer = (input as {
-          markdown?: (ctrl: { setContent(markdown: string): Promise<void> }) => Promise<void>;
-        }).markdown;
-        await producer?.({ setContent: vi.fn(async () => {}) });
-        throw new Error('progress stream failed');
-      },
-    });
-    await startTestBridge(h);
-
-    await h.channel.handlers.message?.(message('om_stream_fail', 'run'));
-    await waitFor(() => h.channel.sent.length === 1);
-
-    expect(lastMarkdown(h.channel)).toContain('FINAL_AFTER_STREAM_FAILURE');
-    expect(
-      fail.mock.calls.some(
-        (call) =>
-          call[0] === 'stream' &&
-          call[1] instanceof Error &&
-          call[1].message === 'progress stream failed' &&
-          (call[2] as { step?: string } | undefined)?.step === 'progress-stream',
-      ),
-    ).toBe(true);
-  });
-
   it('does not record delivery when the final send has no message receipt', async () => {
     const fail = vi.spyOn(log, 'fail').mockImplementation(() => {});
     const info = vi.spyOn(log, 'info').mockImplementation(() => {});
+    // text mode has no progress stream, so the answer always leaves through the
+    // dedicated final send.
     const h = await createHarness({
+      messageReply: 'text',
       events: [
-        { type: 'final_text', content: 'FINAL_WITHOUT_RECEIPT' },
+        { type: 'text', delta: 'FINAL_WITHOUT_RECEIPT' },
         { type: 'done', terminationReason: 'normal' },
       ],
       send: async () => ({ messageId: '' }),
-      stream: async (_chatId, input) => {
-        const producer = (input as {
-          markdown?: (ctrl: { setContent(markdown: string): Promise<void> }) => Promise<void>;
-        }).markdown;
-        await producer?.({ setContent: vi.fn(async () => {}) });
-      },
     });
     await startTestBridge(h);
 
@@ -389,7 +343,7 @@ describe('markdown stream startup failures', () => {
     ).toBe(false);
   });
 
-  it('sends one dedicated final reply card after progress completes in card mode', async () => {
+  it('delivers a card-mode run through the progress card alone', async () => {
     const progressCards: unknown[] = [];
     const h = await createHarness({
       messageReply: 'card',
@@ -412,20 +366,19 @@ describe('markdown stream startup failures', () => {
     await startTestBridge(h);
 
     await h.channel.handlers.message?.(message('om_card_final', 'run'));
-    await waitFor(() => h.channel.sent.length === 1);
+    // The stop button only exists while the run is live, so its disappearance
+    // is the card-mode terminal state.
+    await waitFor(() =>
+      progressCards.some((card) => !JSON.stringify(card).includes('⏹ 终止')),
+    );
+    // give a (duplicate) standalone send a chance to fire before asserting
+    await new Promise((resolve) => setTimeout(resolve, 80));
 
-    // Intermediate agent messages stream as progress; the final answer never
-    // leaks into the progress card (it is held back for the dedicated reply).
+    // mcode streams its answer, so the progress card is the reply: the answer
+    // is not posted a second time as a standalone card.
     const progressJson = JSON.stringify(progressCards);
     expect(progressJson).toContain('progress update');
-    expect(progressJson).not.toContain('FINAL_SENTINEL');
-
-    // The terminal answer arrives as exactly one non-streaming card send.
-    expect(h.channel.sent).toHaveLength(1);
-    const finalJson = JSON.stringify(h.channel.sent[0]?.content);
-    expect(finalJson).toContain('FINAL_SENTINEL');
-    expect(finalJson).not.toContain('progress update');
-    expect(h.channel.sent[0]?.options).toMatchObject({ replyTo: 'om_card_final' });
+    expect(h.channel.sent).toHaveLength(0);
   });
 });
 
@@ -436,8 +389,6 @@ async function createHarness(options: {
   /** One run's events, or one array per run. */
   events?: FakeAgentEvents;
   messageReply?: 'card' | 'markdown' | 'text';
-  /** Codex holds its answer back for a dedicated final reply; Claude streams it. */
-  agentKind?: 'claude' | 'codex';
 } = {}): Promise<{
   tmp: TmpProfile;
   channel: FakeLarkChannel;
@@ -450,7 +401,7 @@ async function createHarness(options: {
   const tmp = await createTmpProfile('markdown-stream-startup-failure-');
   const workspace = await realpath(tmp.workspace);
   const baseProfileConfig = createDefaultProfileConfig({
-    agentKind: options.agentKind ?? 'codex',
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',
@@ -461,10 +412,19 @@ async function createHarness(options: {
     access: {
       allowedUsers: ['ou_user'],
     },
-    codex: {
-      binaryPath: '/usr/local/bin/codex',
+    mcode: {
+      binaryPath: '/usr/local/bin/mcode',
     },
-    ...(options.messageReply ? { preferences: { messageReply: options.messageReply } } : {}),
+    ...(options.messageReply
+      ? {
+          preferences: {
+            messageReply: options.messageReply,
+            // 'text' only means the post-migration plain-text mode; without the
+            // flag `getMessageReplyMode` still reads it as 'markdown'.
+            messageReplyMigrated: true,
+          },
+        }
+      : {}),
   });
   const profileConfig = {
     ...baseProfileConfig,
@@ -476,13 +436,13 @@ async function createHarness(options: {
   const sessions = new SessionStore(join(tmp.profile, 'sessions.json'));
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
   const agent = new FakeAgentAdapter({
-    id: 'codex',
-    displayName: 'Codex',
+    id: 'mcode',
+    displayName: 'MiniMax Code',
     events: options.events ?? [
       [
         {
           type: 'error',
-          message: 'codex exited with code 1: Error loading config.toml',
+          message: 'mcode exited with code 1: Error loading config.toml',
           terminationReason: 'failed',
         },
       ],
@@ -609,7 +569,7 @@ function deferred<T>(): {
 
 function createControls(profileConfig: ReturnType<typeof createDefaultProfileConfig>) {
   return {
-    profile: 'codex',
+    profile: 'mcode',
     profileConfig,
     ownerRefreshState: 'unknown' as const,
     async refreshOwner() {},

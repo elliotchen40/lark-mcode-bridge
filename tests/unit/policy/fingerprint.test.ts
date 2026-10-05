@@ -36,12 +36,10 @@ describe('policy fingerprint', () => {
 
     for (const changed of [
       { cwdRealpath: '/repo/other' },
-      { sandbox: 'workspace-write' as const },
+      { permission: 'smart' as const },
       { accessPolicyDigest: digestOf('access-other') },
       { resourceScopeDigest: digestOf('scope-other') },
       { attachmentPolicyShapeDigest: digestOf('attachments-other') },
-      { codexHome: '/state/other-codex-home' },
-      { inheritCodexHome: true },
     ]) {
       expect(policyFingerprint({ ...base, ...changed })).not.toBe(policyFingerprint(base));
     }
@@ -91,7 +89,7 @@ describe('policy fingerprint', () => {
 
   it('sorts access and resource allowlists so ordering does not change digests', () => {
     const profile = createDefaultProfileConfig({
-      agentKind: 'claude',
+      agentKind: 'mcode',
       accounts: {
         app: {
           id: 'cli_test',
@@ -135,12 +133,10 @@ describe('policy fingerprint', () => {
 function baseInput(): FingerprintInputV2 {
   return {
     cwdRealpath: '/repo/project',
-    sandbox: 'read-only',
+    permission: 'off',
     accessPolicyDigest: digestOf('access'),
     resourceScopeDigest: digestOf('scope'),
     attachmentPolicyShapeDigest: digestOf('attachments'),
-    codexHome: '/state/codex-home',
-    inheritCodexHome: false,
   };
 }
 

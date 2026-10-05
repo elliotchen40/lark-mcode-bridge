@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
 import { PassThrough } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,12 +11,8 @@ vi.mock('../../../src/platform/spawn', async (importOriginal) => {
   return { ...actual, spawnProcess: spawnMock.spawnProcess };
 });
 
-import {
-  buildBridgeSystemPrompt,
-  prefixBridgeSystemPrompt,
-} from '../../../src/agent/bridge-system-prompt';
-import { ClaudeAdapter } from '../../../src/agent/claude/adapter';
-import { CodexAdapter } from '../../../src/agent/codex/adapter';
+import { prefixBridgeSystemPrompt } from '../../../src/agent/bridge-system-prompt';
+import { McodeAdapter } from '../../../src/agent/mcode/adapter';
 
 interface FakeChild extends EventEmitter {
   pid: number;
@@ -45,54 +40,11 @@ beforeEach(() => {
   spawnMock.spawnProcess.mockReset();
 });
 
-describe('ClaudeAdapter system prompt wiring', () => {
-  it('appends the identity-aware bridge system prompt via a temp file after setBotIdentity', async () => {
-    const child = fakeChild();
-    spawnMock.spawnProcess.mockReturnValue(child);
-    const adapter = new ClaudeAdapter();
-    adapter.setBotIdentity({ openId: 'ou_bot_self', name: 'Bridge' });
-
-    adapter.run({ runId: 'r1', prompt: 'hi', cwd: '/tmp' });
-
-    // The prompt goes via stdin, never argv (cmd.exe would mangle it on Windows).
-    expect(await readAll(child.stdin)).toBe('hi');
-    expect(systemPromptFileContent()).toBe(
-      buildBridgeSystemPrompt({ openId: 'ou_bot_self', name: 'Bridge' }),
-    );
-  });
-
-  it('falls back to the base system prompt when no identity was set', async () => {
-    const child = fakeChild();
-    spawnMock.spawnProcess.mockReturnValue(child);
-    const adapter = new ClaudeAdapter();
-
-    adapter.run({ runId: 'r1', prompt: 'hi', cwd: '/tmp' });
-
-    expect(await readAll(child.stdin)).toBe('hi');
-    expect(systemPromptFileContent()).toBe(buildBridgeSystemPrompt(undefined));
-  });
-
-  function systemPromptFileContent(): string {
-    const args = spawnMock.spawnProcess.mock.calls[0]?.[1] as string[];
-    const flagIndex = args.indexOf('--append-system-prompt-file');
-    expect(flagIndex).toBeGreaterThan(-1);
-    expect(args).not.toContain('--append-system-prompt');
-    return readFileSync(args[flagIndex + 1] as string, 'utf8');
-  }
-});
-
-describe('CodexAdapter system prompt wiring', () => {
-  function codexAdapter(): CodexAdapter {
-    return new CodexAdapter({
-      binary: '/usr/local/bin/codex',
-      profileStateDir: '/tmp/codex-profile',
-    });
-  }
-
+describe('McodeAdapter system prompt wiring', () => {
   it('prefixes stdin with the identity-aware bridge system prompt after setBotIdentity', async () => {
     const child = fakeChild();
     spawnMock.spawnProcess.mockReturnValue(child);
-    const adapter = codexAdapter();
+    const adapter = new McodeAdapter({ binary: '/usr/local/bin/mcode' });
     adapter.setBotIdentity({ openId: 'ou_bot_self', name: 'Bridge' });
 
     adapter.run({ runId: 'r1', prompt: 'hi', cwd: '/tmp' });
@@ -101,18 +53,27 @@ describe('CodexAdapter system prompt wiring', () => {
     expect(stdin).toBe(
       prefixBridgeSystemPrompt('hi', { openId: 'ou_bot_self', name: 'Bridge' }),
     );
+    // mcode has no --append-system-prompt flag, and the prompt must never
+    // reach argv (the Windows .cmd shim would truncate it at the first `<`).
+    expect(spawnArgs()).not.toContain('hi');
+    expect(spawnArgs().slice(-2)).toEqual(['--input', '-']);
   });
 
   it('falls back to the base system prompt when no identity was set', async () => {
     const child = fakeChild();
     spawnMock.spawnProcess.mockReturnValue(child);
-    const adapter = codexAdapter();
+    const adapter = new McodeAdapter();
 
     adapter.run({ runId: 'r1', prompt: 'hi', cwd: '/tmp' });
 
     const stdin = await readAll(child.stdin);
     expect(stdin).toBe(prefixBridgeSystemPrompt('hi', undefined));
+    expect(stdin).not.toBe('hi');
   });
+
+  function spawnArgs(): string[] {
+    return spawnMock.spawnProcess.mock.calls[0]?.[1] as string[];
+  }
 });
 
 async function readAll(stream: PassThrough): Promise<string> {

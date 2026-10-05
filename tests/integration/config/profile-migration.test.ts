@@ -260,7 +260,7 @@ describe('profile v2 migration', () => {
           appId: 'cli_test',
           tenant: 'feishu',
           profileName: 'claude',
-          agentKind: 'claude',
+          agentKind: 'mcode',
           configPath: join(root, 'config.json'),
           startedAt: new Date().toISOString(),
           version: '0.2.2',
@@ -381,41 +381,39 @@ describe('profile v2 migration', () => {
     expect(next.profiles.claude?.workspaces.default).toBeUndefined();
   });
 
-  it('migrates a legacy config to Codex through the migrate command', async () => {
+  it('migrates a legacy config to mcode through the migrate command', async () => {
     const root = await makeRoot();
-    const codex = await writeVersionExecutable(root, 'codex', 'codex 1.2.3');
-    const oldCodexBin = process.env.LARK_CHANNEL_CODEX_BIN;
-    process.env.LARK_CHANNEL_CODEX_BIN = codex;
+    const mcode = await writeVersionExecutable(root, 'mcode', 'mcode 1.2.3');
+    const oldMcodeBin = process.env.LARK_CHANNEL_MCODE_BIN;
+    process.env.LARK_CHANNEL_MCODE_BIN = mcode;
     await writeJson(join(root, 'config.json'), legacyConfigFixture());
 
     try {
       await runMigrate({
         config: join(root, 'config.json'),
-        profile: 'codex',
-        agent: 'codex',
+        profile: 'mcode-dev',
+        agent: 'mcode',
       });
     } finally {
-      if (oldCodexBin === undefined) {
-        delete process.env.LARK_CHANNEL_CODEX_BIN;
+      if (oldMcodeBin === undefined) {
+        delete process.env.LARK_CHANNEL_MCODE_BIN;
       } else {
-        process.env.LARK_CHANNEL_CODEX_BIN = oldCodexBin;
+        process.env.LARK_CHANNEL_MCODE_BIN = oldMcodeBin;
       }
     }
 
     const next = (await readJson(join(root, 'config.json'))) as RootConfig;
-    expect(next.activeProfile).toBe('codex');
-    expect(next.profiles.codex?.agentKind).toBe('codex');
-    expect(next.profiles.codex?.codex).toMatchObject({
-      binaryPath: codex,
+    expect(next.activeProfile).toBe('mcode-dev');
+    expect(next.profiles['mcode-dev']?.agentKind).toBe('mcode');
+    expect(next.profiles['mcode-dev']?.mcode).toEqual({
+      binaryPath: mcode,
     });
-    expect(next.profiles.codex?.codex?.realpath).toBeUndefined();
-    expect(next.profiles.codex?.codex?.version).toBeUndefined();
-    expect(next.profiles.codex?.codex?.sha256).toBeUndefined();
-    expect(next.profiles.codex?.permissions).toEqual({
+    expect(next.profiles['mcode-dev']?.permissions).toEqual({
       defaultAccess: 'full',
       maxAccess: 'full',
     });
-    expect(next.profiles.codex).not.toHaveProperty('sandbox');
+    expect(next.profiles['mcode-dev']).not.toHaveProperty('sandbox');
+    expect(next.profiles['mcode-dev']).not.toHaveProperty('codex');
   });
 });
 

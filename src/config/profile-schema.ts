@@ -6,15 +6,13 @@ import type {
 } from './schema';
 import {
   normalizePermissions,
-  permissionsToLegacySandbox,
   type AccessMode,
-  type CodexSandboxMode,
+  type McodePermissionPolicy,
   type PermissionConfig,
   type PermissionSource,
 } from './permissions';
 
-export type AgentKind = 'claude' | 'codex';
-export type SandboxMode = CodexSandboxMode;
+export type AgentKind = 'mcode';
 export type { AccessMode, PermissionConfig, PermissionSource };
 
 export interface ProfileAccess {
@@ -31,24 +29,16 @@ export interface ProfileAccess {
   chatRequireMention?: Record<string, boolean>;
 }
 
-export interface SandboxConfig {
-  default?: SandboxMode;
-  max?: SandboxMode;
-  defaultMode: SandboxMode;
-  maxMode: SandboxMode;
-}
-
-export interface CodexConfig {
+/**
+ * Optional pinned location of the `mcode` binary.
+ *
+ * Omitted means "resolve `mcode` from PATH at run time", which is what a normal
+ * npm/standalone install wants. Pinned by the preflight flow when the resolved
+ * path needs to be recorded so a later run cannot silently pick up a different
+ * binary.
+ */
+export interface McodeConfig {
   binaryPath: string;
-  realpath?: string;
-  version?: string;
-  sha256?: string;
-  owner?: number;
-  mode?: number;
-  codexHome?: string;
-  inheritCodexHome?: boolean;
-  ignoreUserConfig?: boolean;
-  ignoreRules?: boolean;
 }
 
 export interface AttachmentConfig {
@@ -156,10 +146,9 @@ export interface ProfileConfig {
   workspaces: {
     default?: string;
   };
-  sandbox: SandboxConfig;
   permissions: PermissionConfig;
   permissionSource?: PermissionSource;
-  codex?: CodexConfig;
+  mcode?: McodeConfig;
   attachments: AttachmentConfig;
   comments: CommentConfig;
   /** In-meeting agent settings. See {@link MeetingConfig}. */
@@ -201,9 +190,8 @@ export interface CreateDefaultProfileConfigInput {
   };
   preferences?: AppPreferences;
   access?: Partial<ProfileAccess>;
-  sandbox?: Partial<SandboxConfig>;
   permissions?: Partial<PermissionConfig>;
-  codex?: CodexConfig;
+  mcode?: McodeConfig;
   secrets?: SecretsConfig;
 }
 
@@ -236,9 +224,8 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
       trustedRoots?: unknown;
       riskFlags?: unknown;
     };
-    sandbox?: Partial<SandboxConfig>;
     permissions?: Partial<PermissionConfig>;
-    codex?: CodexConfig & { flags?: unknown };
+    mcode?: McodeConfig;
     attachments?: Partial<AttachmentConfig>;
     comments?: unknown;
     meeting?: unknown;
@@ -248,13 +235,10 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
   if (raw.schemaVersion !== 2) {
     throw new Error('profile schemaVersion must be 2');
   }
-  if (raw.agentKind !== 'claude' && raw.agentKind !== 'codex') {
-    throw new Error('agentKind must be claude or codex');
+  if (raw.agentKind !== 'mcode') {
+    throw new Error('agentKind must be mcode');
   }
   const accounts = normalizeAccounts(raw.accounts);
-  if (raw.agentKind === 'codex' && !raw.codex) {
-    throw new Error('codex profile requires codex configuration');
-  }
 
   const preferences = normalizePreferences(raw.preferences);
   const access = normalizeAccess(
@@ -263,9 +247,7 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
   );
   const { permissions, source: permissionSource } = normalizePermissions({
     permissions: raw.permissions,
-    sandbox: raw.sandbox,
   });
-  const sandbox = permissionsToLegacySandbox(permissions);
   const workspaces = normalizeWorkspaces(raw.workspaces);
   const comments = normalizeComments(raw.comments);
   const meeting = normalizeMeeting(raw.meeting);
@@ -280,10 +262,9 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
     preferences,
     access,
     workspaces,
-    sandbox,
     permissions,
     permissionSource,
-    ...(raw.codex ? { codex: normalizeCodex(raw.codex) } : {}),
+    ...(raw.mcode?.binaryPath ? { mcode: { binaryPath: raw.mcode.binaryPath } } : {}),
     attachments: {
       maxCount: numberOr(raw.attachments?.maxCount, 10),
       maxBytes: numberOr(raw.attachments?.maxBytes, 100 * 1024 * 1024),
@@ -373,22 +354,6 @@ function normalizeWorkspaces(input: {
     ? input.default.trim()
     : undefined;
   return defaultWorkspace ? { default: defaultWorkspace } : {};
-}
-
-function normalizeCodex(input: CodexConfig & { flags?: unknown }): CodexConfig {
-  const codex: CodexConfig = {
-    binaryPath: input.binaryPath,
-    ...(typeof input.realpath === 'string' ? { realpath: input.realpath } : {}),
-    ...(typeof input.version === 'string' ? { version: input.version } : {}),
-    ...(typeof input.sha256 === 'string' ? { sha256: input.sha256 } : {}),
-    ...(typeof input.owner === 'number' ? { owner: input.owner } : {}),
-    ...(typeof input.mode === 'number' ? { mode: input.mode } : {}),
-    ...(typeof input.codexHome === 'string' ? { codexHome: input.codexHome } : {}),
-    inheritCodexHome: input.inheritCodexHome !== false,
-    ignoreUserConfig: input.ignoreUserConfig === true,
-    ignoreRules: input.ignoreRules !== false,
-  };
-  return codex;
 }
 
 function normalizeComments(_input: unknown): CommentConfig {

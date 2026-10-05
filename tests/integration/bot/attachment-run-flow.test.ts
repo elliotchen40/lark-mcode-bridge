@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { codexCapability } from '../../../src/agent/capability.js';
+import { mcodeCapability } from '../../../src/agent/capability.js';
 import { ActiveRuns } from '../../../src/bot/active-runs.js';
 import { ProcessPool } from '../../../src/bot/process-pool.js';
 import { startRunFlow } from '../../../src/bot/run-flow.js';
@@ -19,7 +19,7 @@ describe('attachment run flow', () => {
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
   });
 
-  it('passes accepted image attachment paths to Codex adapter image args only', async () => {
+  it('passes every accepted attachment path to the mcode adapter, image and document alike', async () => {
     const h = await createHarness();
 
     const result = await startRunFlow({
@@ -48,7 +48,7 @@ describe('attachment run flow', () => {
         },
       ],
       access: { ok: true, reason: 'allowed-user' },
-      capability: codexCapability(h.profileConfig),
+      capability: mcodeCapability(h.profileConfig),
       profileConfig: h.profileConfig,
       sessions: h.sessions,
       workspaces: h.workspaces,
@@ -58,7 +58,7 @@ describe('attachment run flow', () => {
 
     expect(result.ok).toBe(true);
     expect(h.agent.runOptions[0]).toMatchObject({
-      images: ['/media/image.png'],
+      images: ['/media/image.png', '/media/file.txt'],
     });
   });
 });
@@ -73,8 +73,8 @@ async function createHarness(): Promise<{
 }> {
   const tmp = await createTmpProfile('attachment-run-flow-');
   const agent = new FakeAgentAdapter({
-    id: 'codex',
-    displayName: 'Codex',
+    id: 'mcode',
+    displayName: 'MiniMax Code',
     events: [{ type: 'done', terminationReason: 'normal' }],
   });
   const executor = new RunExecutor({
@@ -85,7 +85,7 @@ async function createHarness(): Promise<{
     now: () => 1000,
   });
   const profileConfig = createDefaultProfileConfig({
-    agentKind: 'codex',
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',
@@ -93,8 +93,8 @@ async function createHarness(): Promise<{
         tenant: 'feishu',
       },
     },
-    codex: {
-      binaryPath: '/usr/local/bin/codex',
+    mcode: {
+      binaryPath: '/usr/local/bin/mcode',
     },
   });
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));

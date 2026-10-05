@@ -19,7 +19,6 @@ export interface SubmitRunInput {
   scopeId: string;
   policy: RunPolicyAllow;
   sessionId?: string;
-  threadId?: string;
   model?: string;
   images?: readonly string[];
   stopGraceMs?: number;
@@ -98,11 +97,9 @@ export class RunExecutor {
       prompt: input.policy.prompt,
       cwd: input.policy.cwdRealpath,
       sessionId: input.sessionId,
-      threadId: input.threadId,
       model: input.model,
       images: input.images,
-      sandbox: input.policy.sandbox,
-      permissionMode: input.policy.permissionMode,
+      permission: input.policy.permission,
       stopGraceMs: input.stopGraceMs,
     };
     let run: AgentRun;
@@ -141,8 +138,7 @@ export class RunExecutor {
       ...dimensions,
       queueWaitMs,
       accessMode: input.policy.accessMode,
-      sandbox: input.policy.sandbox,
-      permissionMode: input.policy.permissionMode,
+      permission: input.policy.permission,
     });
 
     let handle: RunHandle;

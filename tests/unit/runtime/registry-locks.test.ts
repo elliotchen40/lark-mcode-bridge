@@ -30,8 +30,8 @@ describe('registry and runtime lock integration', () => {
     const registryFile = join(root, 'registry', 'processes.json');
     await writeJson(registryFile, {
       entries: [
-        entry({ id: 'stale-a', pid: 999_999_991, profileName: 'claude', appId: 'cli_old' }),
-        entry({ id: 'stale-b', pid: process.pid, profileName: 'codex-dev', appId: 'cli_other' }),
+        entry({ id: 'stale-a', pid: 999_999_991, profileName: 'mcode', appId: 'cli_old' }),
+        entry({ id: 'stale-b', pid: process.pid, profileName: 'mcode-dev', appId: 'cli_other' }),
       ],
     });
     const before = await readFile(registryFile, 'utf8');
@@ -42,8 +42,8 @@ describe('registry and runtime lock integration', () => {
     const registered = await register({
       appId: 'cli_new',
       tenant: 'feishu',
-      profileName: 'codex-dev',
-      agentKind: 'codex',
+      profileName: 'mcode-dev',
+      agentKind: 'mcode',
       configPath: join(root, 'config.json'),
       version: '0.1.32',
       registryFile,
@@ -53,8 +53,8 @@ describe('registry and runtime lock integration', () => {
     expect(persisted.entries.map((item) => item.id)).toEqual([registered.id]);
     expect(persisted.entries[0]).toMatchObject({
       appId: 'cli_new',
-      profileName: 'codex-dev',
-      agentKind: 'codex',
+      profileName: 'mcode-dev',
+      agentKind: 'mcode',
       pid: process.pid,
     });
   });
@@ -65,19 +65,19 @@ describe('registry and runtime lock integration', () => {
     const lockedEntry = entry({
       id: 'locked',
       pid: process.pid,
-      profileName: 'claude',
+      profileName: 'mcode',
       appId: 'cli_existing',
-      agentKind: 'claude',
+      agentKind: 'mcode',
     });
     await writeJson(registryFile, { entries: [lockedEntry] });
 
-    const lockedPaths = resolveAppPaths({ rootDir: root, profile: 'claude' });
-    await withProfileAndAppLocks(lockedPaths, 'cli_existing', 'claude', async () => {
+    const lockedPaths = resolveAppPaths({ rootDir: root, profile: 'mcode' });
+    await withProfileAndAppLocks(lockedPaths, 'cli_existing', 'mcode', async () => {
       const registered = await register({
         appId: 'cli_new',
         tenant: 'feishu',
-        profileName: 'codex-dev',
-        agentKind: 'codex',
+        profileName: 'mcode-dev',
+        agentKind: 'mcode',
         configPath: join(root, 'config.json'),
         version: '0.1.32',
         registryFile,
@@ -96,20 +96,20 @@ describe('registry and runtime lock integration', () => {
         entry({
           id: 'stale-same-app',
           pid: 999_999_992,
-          profileName: 'claude',
+          profileName: 'mcode',
           appId: 'cli_existing',
-          agentKind: 'claude',
+          agentKind: 'mcode',
         }),
       ],
     });
 
-    const lockedPaths = resolveAppPaths({ rootDir: root, profile: 'claude' });
-    await withProfileAndAppLocks(lockedPaths, 'cli_existing', 'claude', async () => {
+    const lockedPaths = resolveAppPaths({ rootDir: root, profile: 'mcode' });
+    await withProfileAndAppLocks(lockedPaths, 'cli_existing', 'mcode', async () => {
       const registered = await register({
         appId: 'cli_new',
         tenant: 'feishu',
-        profileName: 'codex-dev',
-        agentKind: 'codex',
+        profileName: 'mcode-dev',
+        agentKind: 'mcode',
         configPath: join(root, 'config.json'),
         version: '0.1.32',
         registryFile,
@@ -128,15 +128,15 @@ describe('registry and runtime lock integration', () => {
         entry({
           id: 'stale-same-app',
           pid: 999_999_992,
-          profileName: 'claude',
+          profileName: 'mcode',
           appId: 'cli_existing',
-          agentKind: 'claude',
+          agentKind: 'mcode',
         }),
       ],
     });
 
-    const lockedPaths = resolveAppPaths({ rootDir: root, profile: 'claude' });
-    await withProfileAndAppLocks(lockedPaths, 'cli_existing', 'claude', async () => {
+    const lockedPaths = resolveAppPaths({ rootDir: root, profile: 'mcode' });
+    await withProfileAndAppLocks(lockedPaths, 'cli_existing', 'mcode', async () => {
       await expect(sameAppLiveOthers('cli_existing', process.pid, registryFile)).resolves.toEqual([]);
     });
   });
@@ -146,7 +146,7 @@ describe('registry and runtime lock integration', () => {
     const legacyRegistryFile = join(root, 'processes.json');
     const registryFile = join(root, 'registry', 'processes.json');
     await writeJson(legacyRegistryFile, {
-      entries: [entry({ id: 'legacy', pid: 999_999_993, profileName: 'claude' })],
+      entries: [entry({ id: 'legacy', pid: 999_999_993, profileName: 'mcode' })],
     });
     const legacyBefore = await readFile(legacyRegistryFile, 'utf8');
 
@@ -155,8 +155,8 @@ describe('registry and runtime lock integration', () => {
     const registered = await register({
       appId: 'cli_new',
       tenant: 'feishu',
-      profileName: 'codex-dev',
-      agentKind: 'codex',
+      profileName: 'mcode-dev',
+      agentKind: 'mcode',
       configPath: join(root, 'config.json'),
       version: '0.1.32',
       registryFile,
@@ -184,22 +184,22 @@ describe('registry and runtime lock integration', () => {
     const lockedEntry = entry({
       id: 'locked',
       pid: process.pid,
-      profileName: 'claude',
+      profileName: 'mcode',
       appId: 'cli_existing',
-      agentKind: 'claude',
+      agentKind: 'mcode',
     });
     await writeJson(registryFile, { entries: [lockedEntry] });
 
-    const lockedPaths = resolveAppPaths({ rootDir: root, profile: 'claude' });
-    await withProfileAndAppLocks(lockedPaths, 'cli_existing', 'claude', async () => {
+    const lockedPaths = resolveAppPaths({ rootDir: root, profile: 'mcode' });
+    await withProfileAndAppLocks(lockedPaths, 'cli_existing', 'mcode', async () => {
       await writeFile(runtimeLockMetaFile(lockedPaths.profileLockFile), 'not json', 'utf8');
 
       await expect(
         register({
           appId: 'cli_new',
           tenant: 'feishu',
-          profileName: 'codex-dev',
-          agentKind: 'codex',
+          profileName: 'mcode-dev',
+          agentKind: 'mcode',
           configPath: join(root, 'config.json'),
           version: '0.1.32',
           registryFile,
@@ -232,8 +232,8 @@ function entry(overrides: Partial<ProcessEntry>): ProcessEntry {
     configPath: '/tmp/config.json',
     startedAt: new Date().toISOString(),
     version: '0.1.32',
-    profileName: 'claude',
-    agentKind: 'claude',
+    profileName: 'mcode',
+    agentKind: 'mcode',
     ...overrides,
   };
 }

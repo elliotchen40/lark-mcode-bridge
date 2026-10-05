@@ -1,28 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { BRIDGE_SYSTEM_PROMPT } from '../../../src/agent/bridge-system-prompt';
-import { claudeCapability, codexCapability } from '../../../src/agent/capability';
+import { mcodeCapability } from '../../../src/agent/capability';
 import { createDefaultProfileConfig } from '../../../src/config/profile-schema';
 
 describe('agent capability contract', () => {
-  it('defines Claude capability with legacy callback marker compatibility', () => {
-    const capability = claudeCapability();
+  it('defines the mcode capability with stdin prompt injection and no legacy markers', () => {
+    const capability = mcodeCapability();
 
     expect(capability).toMatchObject({
-      agentId: 'claude',
-      sessionKind: 'claude-session',
-      promptInjection: 'append-system-prompt',
-      supportsNativeHistory: true,
+      agentId: 'mcode',
+      sessionKind: 'mcode-session',
+      promptInjection: 'stdin-prefix',
+      supportsNativeHistory: false,
       systemPrompt: BRIDGE_SYSTEM_PROMPT,
       callback: {
         marker: '__bridge_cb',
-        legacyMarkers: ['__claude_cb'],
+        legacyMarkers: [],
+      },
+      permissions: {
+        maxAccess: 'full',
       },
     });
   });
 
-  it('defines Codex capability with thread sessions and stdin prompt injection', () => {
+  it('defines the mcode capability with a profile-scoped access ceiling', () => {
     const profile = createDefaultProfileConfig({
-      agentKind: 'codex',
+      agentKind: 'mcode',
       accounts: {
         app: {
           id: 'cli_test',
@@ -30,8 +33,8 @@ describe('agent capability contract', () => {
           tenant: 'feishu',
         },
       },
-      codex: {
-        binaryPath: '/usr/local/bin/codex',
+      mcode: {
+        binaryPath: '/usr/local/bin/mcode',
       },
       permissions: {
         defaultAccess: 'workspace',
@@ -39,9 +42,9 @@ describe('agent capability contract', () => {
       },
     });
 
-    expect(codexCapability(profile)).toMatchObject({
-      agentId: 'codex',
-      sessionKind: 'codex-thread',
+    expect(mcodeCapability(profile)).toMatchObject({
+      agentId: 'mcode',
+      sessionKind: 'mcode-session',
       promptInjection: 'stdin-prefix',
       supportsNativeHistory: false,
       systemPrompt: BRIDGE_SYSTEM_PROMPT,
@@ -51,9 +54,9 @@ describe('agent capability contract', () => {
     });
   });
 
-  it('uses Codex profile max access as the static capability ceiling', () => {
+  it('uses the mcode profile max access as the static capability ceiling', () => {
     const profile = createDefaultProfileConfig({
-      agentKind: 'codex',
+      agentKind: 'mcode',
       accounts: {
         app: {
           id: 'cli_test',
@@ -61,8 +64,8 @@ describe('agent capability contract', () => {
           tenant: 'feishu',
         },
       },
-      codex: {
-        binaryPath: '/usr/local/bin/codex',
+      mcode: {
+        binaryPath: '/usr/local/bin/mcode',
       },
       permissions: {
         defaultAccess: 'read-only',
@@ -70,6 +73,6 @@ describe('agent capability contract', () => {
       },
     });
 
-    expect(codexCapability(profile).permissions.maxAccess).toBe('read-only');
+    expect(mcodeCapability(profile).permissions.maxAccess).toBe('read-only');
   });
 });

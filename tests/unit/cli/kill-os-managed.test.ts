@@ -70,12 +70,12 @@ describe('kill on OS-managed processes', () => {
     });
     vi.spyOn(process, 'kill').mockImplementation(() => true);
     mocks.getServiceAdapter.mockImplementation((serviceId: string) =>
-      serviceId === 'codex-dev' ? adapter({ pid: '4242' }) : undefined,
+      serviceId === 'mcode-dev' ? adapter({ pid: '4242' }) : undefined,
     );
 
     await expect(runKillCli('4a93')).rejects.toThrow('exit:1');
 
-    expect(errors.join('\n')).toContain('lark-channel-bridge stop --profile codex-dev');
+    expect(errors.join('\n')).toContain('lark-channel-bridge stop --profile mcode-dev');
 
     exit.mockRestore();
   });
@@ -103,10 +103,10 @@ function entry(overrides: Partial<ProcessEntry> = {}): ProcessEntry {
   return {
     id: '4a93',
     pid: 4242,
-    appId: 'cli_codex',
+    appId: 'cli_mcode',
     tenant: 'feishu',
-    profileName: 'codex-dev',
-    agentKind: 'codex',
+    profileName: 'mcode-dev',
+    agentKind: 'mcode',
     configPath: '/tmp/config.json',
     startedAt: new Date().toISOString(),
     version: '0.6.1',

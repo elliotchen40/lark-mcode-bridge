@@ -4,7 +4,7 @@ import * as p from '@clack/prompts';
 import { runRegistrationWizard } from '../bot/wizard';
 import { detectInstalledAgents, type DetectedAgent } from '../cli/agent-detection';
 import {
-  createBootstrapCodexConfig,
+  createBootstrapMcodeConfig,
   createBootstrapProfileConfig,
   resolveBootstrapWorkspace,
 } from '../cli/profile-bootstrap';
@@ -35,7 +35,6 @@ import {
   type ProfileConfig,
   type RootConfig,
 } from '../config/profile-schema';
-import { permissionsToLegacySandbox } from '../config/permissions';
 import type { AppConfig, SecretInput, TenantBrand } from '../config/schema';
 import { isComplete, isSecretRef, secretKeyForApp } from '../config/schema';
 import { resolveAppSecret } from '../config/secret-resolver';
@@ -85,12 +84,7 @@ const ENV_SECRET_TEMPLATE_RE = /^\$\{[A-Z][A-Z0-9_]{0,127}\}$/;
 export function createRuntimeProfileConfig(
   input: CreateDefaultProfileConfigInput,
 ): ProfileConfig {
-  return createDefaultProfileConfig({
-    ...input,
-    ...(input.agentKind === 'codex'
-      ? { codex: input.codex ?? { binaryPath: process.env.LARK_CHANNEL_CODEX_BIN ?? 'codex' } }
-      : {}),
-  });
+  return createDefaultProfileConfig(input);
 }
 
 export async function resolveProfileRuntime(
@@ -108,7 +102,7 @@ export async function resolveProfileRuntime(
   if (!profile && opts.allowBootstrap) {
     const detected = await detectInstalledAgents();
     if (detected.length === 0) {
-      throw new Error('no supported local agent found; install claude or codex first');
+      throw new Error('no supported local agent found; install mcode first (npm i -g @minimax-ai/code)');
     }
     if (detected.length > 1) {
       const selected = await selectDetectedAgent(detected, opts.selectAgent);
@@ -123,7 +117,7 @@ export async function resolveProfileRuntime(
   if (!profile && !opts.allowBootstrap) {
     throw new Error('active profile is required');
   }
-  profile ??= 'claude';
+  profile ??= DEFAULT_PROFILE_NAME;
   let appPaths = resolveAppPaths({ rootDir, profile });
   const configPath = opts.config ?? appPaths.configFile;
 
@@ -135,9 +129,7 @@ export async function resolveProfileRuntime(
     configFile: configPath,
     workspace: opts.workspace,
     ...(migrationAgent ? { agentKind: migrationAgent } : {}),
-    ...(needsMigration && migrationAgent === 'codex'
-      ? { codex: await createBootstrapCodexConfig(undefined) }
-      : {}),
+    mcode: await createBootstrapMcodeConfig(undefined),
   }, opts.handleActiveBridgeMigrationConflict);
 
   let rootConfig = await loadRootConfig(configPath);
@@ -174,8 +166,6 @@ export async function resolveProfileRuntime(
       profileConfig = rootConfig.profiles[profile]!;
       log.info('profile', 'legacy-runtime-defaults-upgraded', {
         profile,
-        permissions: runtimeUpgrade.permissions,
-        codex: runtimeUpgrade.codex,
         workspace: defaultWorkspaceUpgrade.changed,
       });
     }
@@ -189,7 +179,7 @@ export async function resolveProfileRuntime(
     assertBootstrapAppMatchesExistingConfig(opts, profile, existing);
     const cfg = await maybeMigratePlaintextSecret(existing, configPath, appPaths);
     const profileConfig = createRuntimeProfileConfig({
-      agentKind: requestedAgent ?? 'claude',
+      agentKind: requestedAgent ?? 'mcode',
       accounts: cfg.accounts,
       preferences: cfg.preferences,
       secrets: cfg.secrets,
@@ -204,7 +194,7 @@ export async function resolveProfileRuntime(
   if (!opts.allowBootstrap) {
     throw new Error('config not initialized');
   }
-  const bootstrapAgent = resolveBootstrapAgent(requestedAgent, profile) ?? 'claude';
+  const bootstrapAgent = resolveBootstrapAgent(requestedAgent, profile) ?? 'mcode';
   const workspace = opts.workspace;
   const fresh = await resolveBootstrapAppConfig(opts);
   const encrypted = await encryptedConfigForProfile(fresh, appPaths);
@@ -233,7 +223,7 @@ async function bootstrapProfileIntoExistingRoot(args: {
   configPath: string;
 }): Promise<ProfileRuntime> {
   const { rootConfig, profile, requestedAgent, opts, appPaths, configPath } = args;
-  const bootstrapAgent = resolveBootstrapAgent(requestedAgent, profile) ?? 'claude';
+  const bootstrapAgent = resolveBootstrapAgent(requestedAgent, profile) ?? 'mcode';
   const workspace = opts.workspace;
   const fresh = await resolveBootstrapAppConfig(opts);
   const encrypted = await encryptedConfigForProfile(fresh, appPaths);
@@ -270,66 +260,26 @@ async function bootstrapProfileIntoExistingRoot(args: {
   };
 }
 
+/**
+ * Stamp the one-shot "permission defaults migrated" marker into a pre-mcode
+ * config. The old per-agent default upgrades (Claude permissionMode, Codex
+ * sandbox/codexHome) are gone with those agents, so the only work left is
+ * recording that the marker exists.
+ */
 function upgradeLegacyRuntimeDefaults(
   rootConfig: RootConfig,
   profile: string,
-): { rootConfig: RootConfig; changed: boolean; permissions: boolean; codex: boolean } {
+): { rootConfig: RootConfig; changed: boolean } {
   const profileConfig = rootConfig.profiles[profile];
   if (!profileConfig) {
-    return { rootConfig, changed: false, permissions: false, codex: false };
+    return { rootConfig, changed: false };
   }
 
   const permissionDefaultsMigrated = hasPermissionDefaultsMigration(rootConfig, profile);
-  const shouldUpgradeClaudeDefaultPermissions =
-    !permissionDefaultsMigrated &&
-    profileConfig.agentKind === 'claude' &&
-    !profileConfig.permissions.claude?.permissionMode &&
-    profileConfig.permissions.defaultAccess === 'workspace' &&
-    profileConfig.permissions.maxAccess === 'workspace';
-  const legacySandboxPolicy = profileConfig.permissionSource === 'sandbox';
-  const nextPermissions = shouldUpgradeClaudeDefaultPermissions
-    ? { defaultAccess: 'full' as const, maxAccess: 'full' as const }
-    : profileConfig.permissions;
-  const legacyCodexDefaults = profileConfig.permissionSource !== 'permissions';
-  const legacyIsolatedCodexHome =
-    legacyCodexDefaults &&
-    profileConfig.agentKind === 'codex' &&
-    Boolean(profileConfig.codex) &&
-    !profileConfig.codex?.codexHome &&
-    profileConfig.codex?.inheritCodexHome === false;
-  const legacyIgnoredUserConfig =
-    legacyCodexDefaults &&
-    profileConfig.agentKind === 'codex' &&
-    Boolean(profileConfig.codex) &&
-    !profileConfig.codex?.codexHome &&
-    profileConfig.codex?.ignoreUserConfig === true;
-  const permissionsChanged = legacySandboxPolicy || shouldUpgradeClaudeDefaultPermissions;
-  const permissionDefaultsMarkerChanged = !permissionDefaultsMigrated;
-  const codexChanged = legacyIsolatedCodexHome || legacyIgnoredUserConfig;
-  if (!permissionsChanged && !codexChanged && !permissionDefaultsMarkerChanged) {
-    return { rootConfig, changed: false, permissions: false, codex: false };
+  if (permissionDefaultsMigrated) {
+    return { rootConfig, changed: false };
   }
-
-  const nextProfile: ProfileConfig = {
-    ...profileConfig,
-    ...(permissionsChanged
-      ? {
-          permissions: nextPermissions,
-          permissionSource: 'permissions' as const,
-          sandbox: permissionsToLegacySandbox(nextPermissions),
-        }
-      : {}),
-    ...(profileConfig.codex
-      ? {
-          codex: {
-            ...profileConfig.codex,
-            ...(legacyIsolatedCodexHome ? { inheritCodexHome: true } : {}),
-            ...(legacyIgnoredUserConfig ? { ignoreUserConfig: false } : {}),
-          },
-        }
-      : {}),
-  };
-
+  const nextProfile: ProfileConfig = { ...profileConfig };
   const nextRoot = {
     ...rootConfig,
     profiles: {
@@ -340,11 +290,7 @@ function upgradeLegacyRuntimeDefaults(
 
   return {
     changed: true,
-    permissions: permissionsChanged,
-    codex: codexChanged,
-    rootConfig: permissionDefaultsMarkerChanged
-      ? markPermissionDefaultsMigration(nextRoot, profile)
-      : nextRoot,
+    rootConfig: markPermissionDefaultsMigration(nextRoot, profile),
   };
 }
 
@@ -391,11 +337,15 @@ async function resolveConvertedLegacyDefaultWorkspace(
   return realpath(appPaths.defaultWorkspaceDir);
 }
 
+/**
+ * mcode is the only agent, so there is no longer a profile-name -> agent
+ * inference to make; the requested kind simply wins.
+ */
 function resolveBootstrapAgent(
   requestedAgent: AgentKind | undefined,
-  profile: string | undefined,
+  _profile: string | undefined,
 ): AgentKind | undefined {
-  return requestedAgent ?? (profile === 'codex' ? 'codex' : undefined);
+  return requestedAgent;
 }
 
 async function hasLegacyConfig(configPath: string): Promise<boolean> {
@@ -523,7 +473,7 @@ export async function materializeEnvSecretForService(
   const rootDir = opts.config ? dirname(opts.config) : undefined;
   const explicitProfile = opts.profile;
   const activeProfile = explicitProfile ?? (await readActiveProfile(rootDir));
-  let profile = activeProfile ?? 'claude';
+  let profile = activeProfile ?? DEFAULT_PROFILE_NAME;
   let appPaths = resolveAppPaths({ rootDir, profile });
   const configPath = opts.config ?? appPaths.configFile;
 
@@ -568,7 +518,7 @@ function formatAmbiguousAgentSelectionError(
 ): string {
   const lines = detected.map((agent) => `  - ${agent.kind}: ${agent.binaryPath}`);
   return [
-    '检测到多个本地 agent，请使用 --agent <claude|codex> 指定要初始化哪一个。',
+    '检测到多个本地 agent，请使用 --agent <mcode> 指定要初始化哪一个。',
     '已检测到：',
     ...lines,
   ].join('\n');
@@ -612,8 +562,14 @@ class UserCancelledError extends Error {
   }
 }
 
-function displayAgentKind(kind: AgentKind): string {
-  return kind === 'claude' ? 'Claude Code' : 'Codex CLI';
+/**
+ * Fallback profile name when nothing was selected. It is a profile *label*,
+ * not an agent kind — mcode is the only supported agent.
+ */
+const DEFAULT_PROFILE_NAME = 'default';
+
+function displayAgentKind(_kind: AgentKind): string {
+  return 'MiniMax Code';
 }
 
 async function maybeMigrateRootPlaintextSecret(

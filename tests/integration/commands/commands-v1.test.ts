@@ -209,7 +209,7 @@ describe('Bridge command contracts', () => {
     expect(lastMarkdown(h.channel)).not.toContain(target);
   });
 
-  it('keeps Claude resume history details out of group chats', async () => {
+  it('keeps mcode resume history details out of group chats', async () => {
     const h = await createHarness();
 
     await expect(h.run('/resume', { chatMode: 'group' })).resolves.toBe(true);
@@ -231,9 +231,8 @@ describe('Bridge command contracts', () => {
     expect(status).toContain('(无)');
     expect(status).not.toContain('**conversation**');
     expect(status).toContain('permission');
-    expect(status).toContain('plan');
+    expect(status).toContain('smart');
     expect(status).not.toContain('bypassPermissions');
-    expect(status).not.toContain('workspace-write/workspace-write');
     expect(status).toContain('owner');
     expect(status).toContain(jsonStringFragment(await realpath(h.tmp.workspace)));
   });
@@ -370,10 +369,10 @@ async function createHarness(): Promise<Harness> {
 
 function appConfig(defaultWorkspace: string): ProfileConfig {
   const config = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: { app: { id: 'app-id', secret: 'secret', tenant: 'feishu' } },
     access: { admins: ['ou-admin'] },
-    sandbox: { defaultMode: 'read-only', maxMode: 'workspace-write' },
+    permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
     preferences: { maxConcurrentRuns: 2 },
   });
   config.workspaces.default = defaultWorkspace;

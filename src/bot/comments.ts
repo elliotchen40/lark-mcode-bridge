@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { CommentEvent, LarkChannel } from '@larksuite/channel';
-import { claudeCapability, codexCapability } from '../agent/capability';
+import { mcodeCapability } from '../agent/capability';
 import type { AgentAdapter, AgentEvent } from '../agent/types';
 import { getAgentStopGraceMs } from '../config/schema';
 import type { Controls } from '../commands';
@@ -186,10 +186,7 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
     : false;
 
   try {
-    const capability =
-      controls.profileConfig.agentKind === 'codex'
-        ? codexCapability(controls.profileConfig)
-        : claudeCapability(controls.profileConfig);
+    const capability = mcodeCapability(controls.profileConfig);
     const runTimeoutMs = commentRunTimeoutMs(sessions, runScopeId);
     const threadTimeoutMs = commentRunTimeoutMs(sessions, commentThreadScopeId);
     const commentTimeoutMs = runTimeoutMs !== undefined ? runTimeoutMs : threadTimeoutMs;
@@ -211,8 +208,6 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
       capability,
       profileConfig: controls.profileConfig,
       now: Date.now(),
-      codexHome: controls.profileConfig.codex?.codexHome,
-      inheritCodexHome: controls.profileConfig.codex?.inheritCodexHome,
       ...(typeof commentTimeoutMs === 'number' ? { ttlMs: commentTimeoutMs } : {}),
     });
     if (!policy.ok) {
@@ -242,16 +237,14 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
             policyFingerprint: policy.policyFingerprint,
           })
         : undefined;
-      const sessionId =
-        canResumeAgentSession && capability.agentId === 'claude'
-          ? sessions.resumeFor(docSessionScopeId, cwdRealpath) ??
-            sessions.resumeFor(legacyDocSessionScopeId, cwdRealpath)
-          : undefined;
-      const threadId = capability.agentId === 'codex' ? catalogEntry?.threadId : undefined;
+      const sessionId = canResumeAgentSession
+        ? sessions.resumeFor(docSessionScopeId, cwdRealpath) ??
+          sessions.resumeFor(legacyDocSessionScopeId, cwdRealpath)
+        : undefined;
       log.info('comment', 'session', {
         commentScopeId: runScopeId,
         sessionScopeId: agentSessionScopeId,
-        resume: Boolean(sessionId ?? threadId),
+        resume: Boolean(sessionId),
         sessionScopeActive: agentSessionRun.wasActive,
         cwd: cwdRealpath,
       });
@@ -260,7 +253,6 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
         scopeId: runScopeId,
         policy,
         sessionId,
-        threadId,
         stopGraceMs: getAgentStopGraceMs(controls.cfg),
         observability: {
           profile: controls.profile,
@@ -328,7 +320,7 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
             policy,
             event: e,
           });
-          if (capability.agentId === 'claude' && e.type === 'system' && e.sessionId) {
+          if (e.type === 'system' && e.sessionId) {
             sessions.set(docSessionScopeId, e.sessionId, policy.cwdRealpath);
           }
           switch (e.type) {
@@ -385,7 +377,7 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
       }
 
       let reply = stripMarkdown(answer.trim());
-      if (errorMsg) reply = `⚠️ Claude 报错：${errorMsg}`;
+      if (errorMsg) reply = `⚠️ mcode 报错：${errorMsg}`;
       if (!reply) reply = '（无回复内容）';
       if (reply.length > REPLY_MAX_CHARS) reply = `${reply.slice(0, REPLY_MAX_CHARS - 1)}…`;
 

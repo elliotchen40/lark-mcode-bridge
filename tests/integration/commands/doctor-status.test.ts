@@ -52,7 +52,7 @@ describe('/status and /doctor diagnostics', () => {
     expect(status).toContain('profile');
     expect(status).toContain('claude');
     expect(status).toContain('permission');
-    expect(status).toContain('plan');
+    expect(status).toContain('smart');
     expect(status).not.toContain('bypassPermissions');
   });
 
@@ -75,17 +75,16 @@ describe('/status and /doctor diagnostics', () => {
     const opts = h.agent.runOptions[0]!;
     await expect(realpath(h.tmp.workspace)).resolves.toBe(opts.cwd);
     expect(opts.sessionId).toBeUndefined();
-    expect(opts.threadId).toBeUndefined();
     expect(opts.images).toBeUndefined();
-    expect(opts.permissionMode).toBe('plan');
+    expect(opts.permission).toBe('smart');
     expect(opts.prompt).toContain('OK');
     const output = lastStreamCardJson(h.channel);
     expect(output).toContain('self-check');
     expect(output).toContain('profile');
     expect(output).toContain('claude');
     expect(output).toContain('workspace check');
-    expect(output).toContain('policy check: ok permission=plan');
-    expect(output).not.toContain('permission=bypassPermissions');
+    expect(output).toContain('policy check: ok permission=smart');
+    expect(output).not.toContain('permission=off');
     expect(output).toContain('agent echo check');
     expect(output).toContain('OK');
   });
@@ -190,10 +189,10 @@ async function createHarness(options: {
 
 function appConfig(defaultWorkspace: string | undefined): ProfileConfig {
   const config = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: { app: { id: 'app-id', secret: 'secret', tenant: 'feishu' } },
     access: { admins: ['ou-admin'] },
-    sandbox: { defaultMode: 'read-only', maxMode: 'workspace-write' },
+    permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
   });
   if (defaultWorkspace) config.workspaces.default = defaultWorkspace;
   return config;

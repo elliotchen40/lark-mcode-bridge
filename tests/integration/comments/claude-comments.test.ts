@@ -39,7 +39,7 @@ interface FakeCommentChannel {
 
 const cleanups: Array<() => Promise<void>> = [];
 
-describe('Claude cloud-doc comment regression', () => {
+describe('cloud-doc comment regression', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
@@ -272,7 +272,7 @@ async function createCommentHarness(options: {
   workspaces.setCwd('doc:doc-token', tmp.workspace);
   workspaces.setCwd('doc:wiki-token', tmp.workspace);
   const profileConfig = createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: {
       app: {
         id: 'cli_test',
@@ -281,7 +281,7 @@ async function createCommentHarness(options: {
       },
     },
     access: { allowedUsers: ['ou-user'] },
-    sandbox: { defaultMode: 'read-only', maxMode: 'workspace-write' },
+    permissions: { defaultAccess: 'workspace', maxAccess: 'workspace' },
   });
   profileConfig.workspaces.default = tmp.workspace;
   const activeRuns = new ActiveRuns();

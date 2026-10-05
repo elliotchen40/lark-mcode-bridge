@@ -31,7 +31,7 @@ interface Harness {
 
 const cleanups: Array<() => Promise<void>> = [];
 
-describe('Claude shared security regressions', () => {
+describe('shared security regressions', () => {
   afterEach(async () => {
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
   });
@@ -162,7 +162,7 @@ async function createHarness(): Promise<Harness> {
 
 function appConfig(): ProfileConfig {
   return createDefaultProfileConfig({
-    agentKind: 'claude',
+    agentKind: 'mcode',
     accounts: { app: { id: 'app-id', secret: 'secret', tenant: 'feishu' } },
     access: { allowedChats: ['oc_group'] },
   });

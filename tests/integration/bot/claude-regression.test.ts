@@ -5,7 +5,7 @@ import { getMessageReplyMode, getRequireMentionInGroup } from '../../../src/conf
 import { PendingQueue } from '../../../src/bot/pending-queue.js';
 import type { NormalizedMessage } from '@larksuite/channel';
 
-describe('Claude IM regression boundaries', () => {
+describe('IM regression boundaries', () => {
   afterEach(() => {
     vi.useRealTimers();
   });

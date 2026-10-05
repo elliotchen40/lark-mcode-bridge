@@ -1,10 +1,10 @@
 import type { AgentAvailability } from './preflight';
-import type { ClaudePermissionMode, CodexSandboxMode } from '../config/permissions';
+import type { McodePermissionPolicy } from '../config/permissions';
 
-export type { ClaudePermissionMode } from '../config/permissions';
+export type { McodePermissionPolicy } from '../config/permissions';
 
 export type AgentEvent =
-  | { type: 'system'; sessionId?: string; threadId?: string; cwd?: string; model?: string }
+  | { type: 'system'; sessionId?: string; cwd?: string; model?: string }
   | { type: 'text'; delta: string }
   | { type: 'final_text'; content: string }
   | { type: 'thinking'; delta: string }
@@ -21,23 +21,25 @@ export type AgentEvent =
   | {
       type: 'done';
       sessionId?: string;
-      threadId?: string;
       terminationReason: 'normal' | 'interrupted' | 'timeout';
     }
   | { type: 'error'; message: string; terminationReason: 'failed' | 'interrupted' | 'timeout' };
 
-export const CLAUDE_DEFAULT_PERMISSION_MODE: ClaudePermissionMode = 'bypassPermissions';
+export const MCODE_DEFAULT_PERMISSION_POLICY: McodePermissionPolicy = 'full';
 
 export interface AgentRunOptions {
   runId: string;
   prompt: string;
   cwd?: string;
+  /** Existing mcode session to continue (`mcode exec --session`). */
   sessionId?: string;
-  threadId?: string;
   model?: string;
   images?: readonly string[];
-  sandbox?: CodexSandboxMode;
-  permissionMode?: ClaudePermissionMode;
+  /**
+   * Tool-execution policy forwarded to `mcode exec --permission`.
+   * Defaults to {@link MCODE_DEFAULT_PERMISSION_POLICY} when omitted.
+   */
+  permission?: McodePermissionPolicy;
   /**
    * Grace period (ms) between SIGTERM and SIGKILL when stop() is called on
    * the returned run. Lets the agent (and any subprocess it spawned, e.g.

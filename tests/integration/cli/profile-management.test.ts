@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveAppPaths } from '../../../src/config/app-paths';
 import {
   createDefaultProfileConfig,
-  type AgentKind,
   type RootConfig,
 } from '../../../src/config/profile-schema';
 import { runProfileList, runProfileUse } from '../../../src/cli/commands/profile';
@@ -27,14 +26,14 @@ afterEach(async () => {
 describe('profile management commands', () => {
   it('lists active profile first with running pid and agent identity', async () => {
     const root = await makeRoot();
-    await writeProfiles(root, 'codex-dev', ['alpha', 'claude', 'codex-dev']);
+    await writeProfiles(root, 'mcode-dev', ['alpha', 'mcode-dev', 'work']);
     await writeRegistry(root, [
       processEntry({
         id: 'run1',
         pid: 12345,
-        profileName: 'codex-dev',
-        agentKind: 'codex',
-        appId: 'cli_codex',
+        profileName: 'mcode-dev',
+        agentKind: 'mcode',
+        appId: 'cli_mcode_dev',
       }),
     ]);
     const lines: string[] = [];
@@ -45,25 +44,25 @@ describe('profile management commands', () => {
     await runProfileList({ rootDir: root });
 
     expect(lines).toEqual([
-      'ACTIVE  PROFILE    AGENT   STATUS',
-      '*       codex-dev  codex   pid=12345 agent=codex',
-      '        alpha      claude  -',
-      '        claude     claude  -',
+      'ACTIVE  PROFILE    AGENT  STATUS',
+      '*       mcode-dev  mcode  pid=12345 agent=mcode',
+      '        alpha      mcode  -',
+      '        work       mcode  -',
     ]);
   });
 
   it('switches active profile atomically without rewriting running process entries', async () => {
     const root = await makeRoot();
-    await writeProfiles(root, 'claude', ['claude', 'codex-dev']);
+    await writeProfiles(root, 'work', ['mcode-dev', 'work']);
     const registryFile = resolveAppPaths({ rootDir: root }).userRegistryFile;
     const registry = {
       entries: [
         processEntry({
           id: 'run1',
           pid: 12345,
-          profileName: 'claude',
-          agentKind: 'claude',
-          appId: 'cli_claude',
+          profileName: 'mcode-dev',
+          agentKind: 'mcode',
+          appId: 'cli_mcode_dev',
         }),
       ],
     };
@@ -71,11 +70,11 @@ describe('profile management commands', () => {
     const beforeRegistry = await readFile(registryFile, 'utf8');
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await runProfileUse('codex-dev', { rootDir: root });
+    await runProfileUse('mcode-dev', { rootDir: root });
 
     const rootConfig = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as RootConfig;
-    await expect(readFile(join(root, 'active-profile'), 'utf8')).resolves.toBe('codex-dev\n');
-    expect(rootConfig.activeProfile).toBe('codex-dev');
+    await expect(readFile(join(root, 'active-profile'), 'utf8')).resolves.toBe('mcode-dev\n');
+    expect(rootConfig.activeProfile).toBe('mcode-dev');
     expect(await readFile(registryFile, 'utf8')).toBe(beforeRegistry);
   });
 });
@@ -83,9 +82,8 @@ describe('profile management commands', () => {
 async function writeProfiles(root: string, activeProfile: string, names: string[]): Promise<void> {
   const profiles: RootConfig['profiles'] = {};
   for (const name of names) {
-    const agentKind: AgentKind = name.startsWith('codex') ? 'codex' : 'claude';
     profiles[name] = createDefaultProfileConfig({
-      agentKind,
+      agentKind: 'mcode',
       accounts: {
         app: {
           id: `cli_${name.replace(/[^A-Za-z0-9]/g, '_')}`,
@@ -93,7 +91,6 @@ async function writeProfiles(root: string, activeProfile: string, names: string[
           tenant: 'feishu',
         },
       },
-      ...(agentKind === 'codex' ? { codex: { binaryPath: 'codex' } } : {}),
     });
     await mkdir(join(root, 'profiles', name), { recursive: true });
   }
@@ -113,8 +110,8 @@ function processEntry(overrides: Partial<ProcessEntry>): ProcessEntry {
     pid: process.pid,
     appId: 'cli_test',
     tenant: 'feishu',
-    profileName: 'claude',
-    agentKind: 'claude',
+    profileName: 'mcode-dev',
+    agentKind: 'mcode',
     configPath: '/tmp/config.json',
     startedAt: new Date().toISOString(),
     version: '0.1.32',
